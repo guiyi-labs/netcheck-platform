@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>巡检任务 - 自动化巡检与故障诊断平台</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+  <link href="css/app.css" rel="stylesheet" />
+</head>
+<body>
+  <div id="app-nav"></div>
+  <main class="container-fluid app-main">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+      <h4 class="mb-0"><i class="bi bi-clipboard2-pulse me-1"></i>巡检任务</h4>
+      <button class="btn btn-primary btn-sm" id="btn-create"><i class="bi bi-plus-lg me-1"></i>新建任务</button>
+    </div>
+    <div id="list-error" class="alert alert-danger d-none" role="alert"></div>
+    <div class="card"><div class="card-body">
+      <div class="table-responsive"><table class="table table-hover align-middle mb-0 task-table">
+        <thead><tr><th>ID</th><th>任务名称</th><th>检测类型</th><th>资产数</th><th>启用状态</th><th>调度状态</th><th>间隔</th><th>下次执行</th><th>最近定时执行</th><th>描述</th><th class="text-end">操作</th></tr></thead>
+        <tbody id="task-tbody"><tr><td colspan="11" class="text-center text-muted py-4">加载中...</td></tr></tbody>
+      </table></div>
+      <div class="pagination-bar mt-3"><div class="text-muted small" id="page-info">共 0 条</div><div class="btn-group btn-group-sm"><button class="btn btn-outline-secondary" id="btn-prev" disabled><i class="bi bi-chevron-left"></i> 上一页</button><button class="btn btn-outline-secondary" id="btn-next" disabled>下一页 <i class="bi bi-chevron-right"></i></button></div></div>
+    </div></div>
+  </main>
+  <div class="modal fade" id="taskModal" tabindex="-1" aria-labelledby="taskModalLabel" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+    <form id="task-form" class="modal-form" novalidate><div class="modal-header"><h5 class="modal-title" id="taskModalLabel">新建巡检任务</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div>
+    <div class="modal-body"><div id="form-error" class="alert alert-danger d-none" role="alert"></div><input type="hidden" id="task-id" />
+      <div class="row g-3"><div class="col-md-7"><label class="form-label" for="m-name">任务名称<span class="required-mark">*</span></label><input class="form-control" id="m-name" maxlength="128" required /></div><div class="col-md-5"><label class="form-label d-block">启用状态</label><div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" role="switch" id="m-enabled" checked /><label class="form-check-label" for="m-enabled">创建后立即启用</label></div></div>
+      <div class="col-12"><label class="form-label">检测类型<span class="required-mark">*</span></label><div class="d-flex flex-wrap gap-3"><div class="form-check"><input class="form-check-input" type="checkbox" value="ping" id="check-ping" checked /><label class="form-check-label" for="check-ping">Ping 连通性</label></div><div class="form-check"><input class="form-check-input" type="checkbox" value="port" id="check-port" /><label class="form-check-label" for="check-port">端口检测</label></div><div class="form-check"><input class="form-check-input" type="checkbox" value="http" id="check-http" /><label class="form-check-label" for="check-http">HTTP 检测</label></div><div class="form-check"><input class="form-check-input" type="checkbox" value="dns" id="check-dns" /><label class="form-check-label" for="check-dns">DNS 检测</label></div></div></div>
+      <div class="col-md-5"><label class="form-label d-block">定时巡检</label><div class="form-check form-switch mt-2"><input class="form-check-input" type="checkbox" role="switch" id="m-schedule-enabled" /><label class="form-check-label" for="m-schedule-enabled">启用定时执行</label></div></div><div class="col-md-7"><label class="form-label" for="m-schedule-interval">间隔分钟</label><input class="form-control" id="m-schedule-interval" type="number" min="1" step="1" placeholder="例如：60" /><div class="form-text">启用定时后必须填写大于 0 的分钟数。</div></div>
+      <div class="col-12"><label class="form-label" for="m-assets">巡检资产<span class="required-mark">*</span></label><select id="m-assets" class="form-select asset-multiselect" multiple size="8" aria-describedby="asset-help"></select><div class="form-text" id="asset-help">按住 Ctrl 或 Shift 可多选；资产列表加载中...</div></div>
+      <div class="col-12"><label class="form-label" for="m-description">描述</label><textarea class="form-control" id="m-description" rows="3"></textarea></div></div>
+    </div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button><button type="submit" class="btn btn-primary" id="btn-save"><span class="spinner-border spinner-border-sm me-1 d-none" id="save-spin"></span><span id="save-text">保存</span></button></div></form>
+  </div></div></div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script><script src="js/api.js"></script><script src="js/auth.js"></script><script src="js/tasks.js"></script>
+</body></html>

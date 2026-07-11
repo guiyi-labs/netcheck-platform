@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>资产发现 - 自动化巡检与故障诊断平台</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+  <link href="css/app.css" rel="stylesheet" />
+</head>
+<body>
+  <div id="app-nav"></div>
+  <main class="container-fluid app-main discovery-page">
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+      <div>
+        <h4 class="mb-0"><i class="bi bi-radar me-1"></i>资产发现</h4>
+        <div class="text-muted small">扫描授权网段，查看发现结果并导入为资产</div>
+      </div>
+      <button class="btn btn-outline-secondary btn-sm" id="btn-refresh-scans" type="button"><i class="bi bi-arrow-clockwise me-1"></i>刷新历史</button>
+    </div>
+    <div id="discovery-alert" class="alert d-none" role="alert"></div>
+    <div class="row g-3">
+      <div class="col-12 col-xl-4">
+        <div class="card h-100 discovery-form-card"><div class="card-header">新建扫描</div><div class="card-body">
+          <form id="scan-form" novalidate>
+            <div class="mb-3"><label class="form-label" for="target-range">目标范围<span class="required-mark">*</span></label><input class="form-control" id="target-range" placeholder="如 192.168.1.0/24 或 192.168.1.1-192.168.1.20" maxlength="512" required /></div>
+            <div class="mb-3"><label class="form-label" for="scan-mode">扫描模式</label><select class="form-select" id="scan-mode"><option value="ping_port">Ping + 端口探测</option><option value="ping">仅 Ping</option><option value="port">仅端口探测</option></select></div>
+            <div class="mb-3"><label class="form-label" for="scan-ports">端口</label><input class="form-control" id="scan-ports" placeholder="80,443,22" value="80,443" /><div class="form-text">多个端口用英文逗号分隔；仅 Ping 模式可留空。</div></div>
+            <div class="alert alert-warning small mb-3"><i class="bi bi-shield-check me-1"></i>请确认仅扫描已获授权的资产范围，避免对未授权网络产生影响。</div>
+            <button class="btn btn-primary w-100" id="btn-start-scan" type="submit"><span class="spinner-border spinner-border-sm me-1 d-none" id="scan-spin"></span>开始扫描</button>
+          </form>
+        </div></div>
+      </div>
+      <div class="col-12 col-xl-8">
+        <div class="card h-100"><div class="card-header d-flex justify-content-between align-items-center"><span>扫描历史</span><span class="small text-muted" id="scan-page-info">共 0 条</span></div><div class="card-body">
+          <div id="scan-error" class="alert alert-danger d-none" role="alert"></div>
+          <div class="table-responsive discovery-history-wrap"><table class="table table-hover align-middle mb-0 discovery-table"><thead><tr><th>ID</th><th>目标范围</th><th>模式</th><th>端口</th><th>状态</th><th>目标数</th><th>发现数</th><th>开始时间</th><th>结束时间</th><th class="text-end">操作</th></tr></thead><tbody id="scan-tbody"><tr><td colspan="10" class="text-center text-muted py-4">加载中...</td></tr></tbody></table></div>
+        </div></div>
+      </div>
+      <div class="col-12">
+        <div class="card"><div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><span>扫描结果</span><span class="small text-muted" id="result-title">请选择一次扫描查看结果</span></div><div class="card-body">
+          <div id="result-error" class="alert alert-danger d-none" role="alert"></div>
+          <div class="table-responsive"><table class="table table-hover align-middle mb-0 discovery-table"><thead><tr><th>ID</th><th>IP</th><th>主机名</th><th>开放端口</th><th>状态</th><th>匹配资产</th><th>导入资产</th><th>发现时间</th><th class="text-end">操作</th></tr></thead><tbody id="result-tbody"><tr><td colspan="9" class="empty-state"><i class="bi bi-search"></i><div>请选择扫描记录查看结果</div></td></tr></tbody></table></div>
+        </div></div>
+      </div>
+    </div>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/discovery.js"></script>
+</body>
+</html>

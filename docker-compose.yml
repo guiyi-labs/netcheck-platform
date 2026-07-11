@@ -1,0 +1,66 @@
+services:
+  netcheck-backend:
+    build:
+      context: ./backend
+    container_name: netcheck-backend
+    environment:
+      NETCHECK_DATABASE_URL: sqlite:////app/data/netcheck.db
+    ports:
+      - "8000:8000"
+    volumes:
+      - db_data:/app/data
+      - report_data:/app/reports
+      - backend_logs:/app/logs
+    cap_add:
+      - NET_RAW
+    networks:
+      - netcheck-lab
+
+  netcheck-frontend:
+    build:
+      context: ./frontend
+    container_name: netcheck-frontend
+    depends_on:
+      - netcheck-backend
+    ports:
+      - "8080:80"
+    networks:
+      - netcheck-lab
+
+  demo-web-ok:
+    image: nginx:1.27-alpine
+    container_name: demo-web-ok
+    volumes:
+      - ./demo-services/web-ok/index.html:/usr/share/nginx/html/index.html:ro
+    ports:
+      - "18080:80"
+    networks:
+      - netcheck-lab
+
+  demo-web-error:
+    image: nginx:1.27-alpine
+    container_name: demo-web-error
+    volumes:
+      - ./demo-services/web-error/default.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "18081:80"
+    networks:
+      - netcheck-lab
+
+  demo-web-slow:
+    build:
+      context: ./demo-services/web-slow
+    container_name: demo-web-slow
+    ports:
+      - "18082:80"
+    networks:
+      - netcheck-lab
+
+networks:
+  netcheck-lab:
+    name: netcheck-lab
+
+volumes:
+  db_data:
+  report_data:
+  backend_logs:
