@@ -140,6 +140,7 @@ Docker Compose 使用命名 volume 保存运行数据：
 - [数据库表结构说明](docs/final-delivery/database-schema.md)
 - [论文截图清单](docs/final-delivery/screenshot-checklist.md)
 - [最终交付清单](docs/final-delivery/delivery-checklist.md)
+- [本地备份与 GitHub 推送说明](docs/final-delivery/github-backup-push-note.md)
 - [第 7 批计划](docs/batches/2026-07-11-batch-7/plan.md)
 - [第 7 批归档](docs/batches/2026-07-11-batch-7/archive.md)
 
