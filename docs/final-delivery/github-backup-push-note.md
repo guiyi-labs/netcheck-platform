@@ -10,13 +10,13 @@
 备份压缩包：
 
 ```text
-e:\BS\codex\backups\netcheck-source-docs-20260711-190203.zip
+<repo-root>\backups\netcheck-source-docs-20260711-190203.zip
 ```
 
 解压目录：
 
 ```text
-e:\BS\codex\backups\netcheck-source-docs-20260711-190203
+<repo-root>\backups\netcheck-source-docs-20260711-190203
 ```
 
 校验信息：
@@ -72,7 +72,7 @@ main
 远程仓库地址：
 
 ```text
-https://github.com/3342773648-max/netcheck-platform.git
+https://github.com/guiyi-labs/netcheck-platform.git
 ```
 
 远程配置已修正，当前不再包含错误的反引号。
@@ -90,7 +90,7 @@ git push -u origin main
 错误信息：
 
 ```text
-fatal: unable to access 'https://github.com/3342773648-max/netcheck-platform.git/':
+fatal: unable to access 'https://github.com/guiyi-labs/netcheck-platform.git/':
 Failed to connect to github.com port 443 after 21132 ms: Couldn't connect to server
 ```
 

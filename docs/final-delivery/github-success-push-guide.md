@@ -1,8 +1,8 @@
 # GitHub 成功推送操作留存文档
 
 > 日期：2026-07-11
-> 项目路径：`E:\BS\codex`
-> GitHub 仓库：`https://github.com/3342773648-max/netcheck-platform.git`
+> 项目路径：`<repo-root>`
+> GitHub 仓库：`https://github.com/guiyi-labs/netcheck-platform.git`
 > 目的：记录本项目首次推送到 GitHub 的成功步骤，供后续项目或再次推送时参考。
 
 ## 1. 背景说明
@@ -26,7 +26,7 @@
 本次成功仓库地址：
 
 ```text
-https://github.com/3342773648-max/netcheck-platform.git
+https://github.com/guiyi-labs/netcheck-platform.git
 ```
 
 ## 3. 成功执行的命令流程
@@ -34,7 +34,7 @@ https://github.com/3342773648-max/netcheck-platform.git
 在 Windows CMD 中进入项目目录：
 
 ```bat
-cd /d E:\BS\codex
+cd /d <repo-root>
 ```
 
 初始化或重新确认 Git 仓库：
@@ -46,7 +46,7 @@ git init
 本次输出：
 
 ```text
-Reinitialized existing Git repository in E:/BS/codex/.git/
+Reinitialized existing Git repository in <repo-root>/.git/
 ```
 
 说明：当前目录已经是 Git 仓库，`git init` 不会破坏已有提交，只会重新确认初始化。
@@ -54,8 +54,8 @@ Reinitialized existing Git repository in E:/BS/codex/.git/
 配置当前仓库提交人信息：
 
 ```bat
-git config user.name "3342773648-max"
-git config user.email "3342773648@qq.com"
+git config user.name "guiyi-labs"
+git config user.email "277616126+guiyi-labs@users.noreply.github.com"
 ```
 
 说明：
@@ -66,13 +66,13 @@ git config user.email "3342773648@qq.com"
 设置远程仓库地址：
 
 ```bat
-git remote set-url origin https://github.com/3342773648-max/netcheck-platform.git
+git remote set-url origin https://github.com/guiyi-labs/netcheck-platform.git
 ```
 
 如果之前没有 `origin`，可使用：
 
 ```bat
-git remote add origin https://github.com/3342773648-max/netcheck-platform.git
+git remote add origin https://github.com/guiyi-labs/netcheck-platform.git
 ```
 
 添加需要推送的项目文件：
@@ -142,7 +142,7 @@ Compressing objects: 100% (146/146), done.
 Writing objects: 100% (155/155), 159.94 KiB | 2.42 MiB/s, done.
 Total 155 (delta 12), reused 0 (delta 0), pack-reused 0
 remote: Resolving deltas: 100% (12/12), done.
-To https://github.com/3342773648-max/netcheck-platform.git
+To https://github.com/guiyi-labs/netcheck-platform.git
  * [new branch]      main -> main
 branch 'main' set up to track 'origin/main'.
 ```
@@ -165,7 +165,7 @@ branch 'main' set up to track 'origin/main'
 以后修改代码或文档后，按以下步骤提交并推送：
 
 ```bat
-cd /d E:\BS\codex
+cd /d <repo-root>
 
 git status
 
@@ -225,14 +225,14 @@ git remote -v
 期望输出：
 
 ```text
-origin  https://github.com/3342773648-max/netcheck-platform.git (fetch)
-origin  https://github.com/3342773648-max/netcheck-platform.git (push)
+origin  https://github.com/guiyi-labs/netcheck-platform.git (fetch)
+origin  https://github.com/guiyi-labs/netcheck-platform.git (push)
 ```
 
 如果地址错误，使用：
 
 ```bat
-git remote set-url origin https://github.com/3342773648-max/netcheck-platform.git
+git remote set-url origin https://github.com/guiyi-labs/netcheck-platform.git
 ```
 
 ## 8. 常见问题
@@ -249,8 +249,8 @@ Please tell me who you are.
 解决：
 
 ```bat
-git config user.name "3342773648-max"
-git config user.email "3342773648@qq.com"
+git config user.name "guiyi-labs"
+git config user.email "277616126+guiyi-labs@users.noreply.github.com"
 ```
 
 ### 8.2 src refspec main does not match any
@@ -317,7 +317,7 @@ info: please complete authentication in your browser...
 本次项目已成功推送到 GitHub：
 
 ```text
-https://github.com/3342773648-max/netcheck-platform.git
+https://github.com/guiyi-labs/netcheck-platform.git
 ```
 
 后续如需更新，只需要在有新修改后执行：
