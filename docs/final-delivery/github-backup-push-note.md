@@ -1,5 +1,7 @@
 # 本地备份与 GitHub 推送说明
 
+> **安全脱敏说明**：本文档中的 `<repo-root>` 为项目根目录占位符，使用时请替换为实际路径。远程仓库地址已更新为 `https://github.com/guiyi-labs/netcheck-platform.git`，历史 commit hash 已因安全重写而变更。
+
 > 日期：2026-07-11
 > 目的：记录项目最终源码备份、Git 初始化提交状态，以及 GitHub 推送处理情况。
 
@@ -106,7 +108,7 @@ Failed to connect to github.com port 443 after 21132 ms: Couldn't connect to ser
 在能够访问 GitHub 的网络环境下执行：
 
 ```powershell
-cd /d E:\BS\codex
+cd /d <repo-root>
 git push -u origin main
 ```
 

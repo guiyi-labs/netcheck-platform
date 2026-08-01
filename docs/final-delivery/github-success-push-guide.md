@@ -1,5 +1,7 @@
 # GitHub 成功推送操作留存文档
 
+> **安全脱敏说明**：本文档中的 `<repo-root>` 为项目根目录占位符，使用时请替换为实际路径。Git 提交人身份已统一为 `277616126+guiyi-labs@users.noreply.github.com`，远程仓库地址已更新为 `https://github.com/guiyi-labs/netcheck-platform.git`，历史 commit hash 已因安全重写而变更。
+
 > 日期：2026-07-11
 > 项目路径：`<repo-root>`
 > GitHub 仓库：`https://github.com/guiyi-labs/netcheck-platform.git`
