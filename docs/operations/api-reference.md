@@ -120,6 +120,10 @@ curl -s -X POST "http://localhost:8000/api/diagnostics/traceroute?target=8.8.8.8
 | GET | /api/devices/{id}/interfaces | 接口指标（速率、计数器、状态） | 登录 |
 | POST | /api/devices/collect | 批量触发采集（≤ 8 台，同步） | 写 |
 | POST | /api/devices/{id}/collect | 触发单台采集 | 写 |
+| GET | /api/devices/{id}/configs | 配置快照列表（时间/SHA-256/来源/变更标记） | 登录 |
+| GET | /api/devices/{id}/configs/latest | 最新配置快照（脱敏文本） | 登录 |
+| POST | /api/devices/{id}/configs/collect | 触发配置备份采集（只读 + 脱敏 + 去重） | 写 |
+| GET | /api/devices/{id}/configs/diff | 快照差异（默认最新两份；from/to 可选） | 登录 |
 
 采集示例（登录后）:
 
@@ -146,6 +150,32 @@ curl -s http://localhost:8000/api/devices/1/interfaces \
 
 > 采集状态：`idle/collecting/success/failed` + 失败分类 `auth_failed/priv_failed/timeout/host_key_unknown/host_key_mismatch/conn_refused`。
 > 空样本显示 `unknown`，不显示 0 或健康。
+
+### 7.1 配置备份（N2）
+
+```bash
+# 触发配置备份（只读，脱敏后入库，同内容去重）
+curl -s -X POST http://localhost:8000/api/devices/1/configs/collect \
+  -H "Authorization: Bearer $TOKEN"
+# → {"data":{"status":"ok","changed":false,"snapshot_id":1,"hash":"..."}}
+
+# 再次采集（内容未变 → unchanged，不产生新快照）
+curl -s -X POST http://localhost:8000/api/devices/1/configs/collect \
+  -H "Authorization: Bearer $TOKEN"
+# → {"data":{"status":"unchanged",...}}
+
+# 差异对比（最新两份）
+curl -s "http://localhost:8000/api/devices/1/configs/diff" \
+  -H "Authorization: Bearer $TOKEN"
+# → {"data":{"changed":true,"rows":[{"kind":"context",...},{"kind":"del",...}]}}
+
+# 最新脱敏配置
+curl -s "http://localhost:8000/api/devices/1/configs/latest" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+> 安全：配置全文仅存 SHA-256 哈希（去重/变更检测）；入库文本为脱敏后内容，密钥行值替换为 `********`；绝不保存明文密钥。
+> 变更检测：内容变化自动标记 `changed=True` 并写入审计日志 `device_config_backup`。
 
 ## 8. 告警 `/api/alerts` · `/api/alert-policy`
 

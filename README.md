@@ -137,14 +137,21 @@ curl.exe -s http://localhost:8000/api/assets -H "Authorization: Bearer $token"
 docker compose down
 ```
 
-## 设备采集（N1：SNMPv3 与 SSH 只读）
+## 设备采集（N1：SNMPv3 与 SSH 只读）+ 配置备份（N2）
 
-N1 起新增网络设备只读采集链路（`frontend/devices.html` → `/api/devices/*`）：
+N1 新增网络设备只读采集链路（`frontend/devices.html` → `/api/devices/*`）：
 
 - **设备资产模型**：管理地址、厂商平台（linux / cisco_ios / generic）、SNMP/SSH 能力与采集状态；
 - **SNMPv3 authPriv**：显式算法 allowlist（SHA-256/SHA + AES-128/AES-256），OID 固定 allowlist，带 sysName/sysDescr/sysUpTime、接口名称/状态/64 位计数器，速率基于相邻样本与真实时间间隔计算（处理计数器回绕、重启、缺样本）；
 - **SSH 只读**：固定厂商适配器 + 只读命令 allowlist，host key 校验（首次未知/不匹配显式报错），原始输出长度上限 + 脱敏，不做配置下发；
 - **凭据安全**：AES-256-GCM 加密存储（`NETCHECK_SECRET_KEY`），API/日志/前端只返回 `configured`/`has_secret`/算法摘要；空样本显示 `unknown`，不显示为 0 或健康。
+
+N2 新增只读配置备份与差异（`/api/devices/{id}/configs/*`）：
+
+- **配置采集**：复用 SSH 只读通道，从 `CONFIG_READ_COMMANDS` allowlist 读取配置；
+- **脱敏存储**：密钥行值替换为 `********`，仅存 SHA-256 全文哈希（去重/变更检测），不保存明文密钥；
+- **差异对比**：相邻快照行级 unified diff，前端红绿着色展示新增/删除行；
+- **变更审计**：配置变化自动标记并写入 `OperationLog`（action = `device_config_backup`）。
 
 实验入口：`./scripts/n1-lab.sh mock`（确定性 mock 演示）｜ `lab-up`（containerlab/FRRouting 实验）。
 凭据/采集配置：`.env.example` 中 `NETCHECK_*` N1 段。

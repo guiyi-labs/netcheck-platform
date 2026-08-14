@@ -94,3 +94,12 @@ cd frontend && python3 -m http.server 8080
 4. **速率真实语义**：首样本/缺样本速率必须 `None`（页面显示 unknown），禁止 0 或绿色冒充健康；64 位计数器回绕按 2^64 修正。
 5. **有界采集**：接口数、请求数、命令数、输出字节数、批量设备数都有上限（config 可调）。
 6. **失败分类清晰**：`auth_failed/priv_failed/timeout/host_key_unknown/host_key_mismatch/conn_refused` 必须映射到设备 `collect_status`。
+
+## 8.1 N2 配置备份约束（改动前必读）
+
+1. **配置读取命令 allowlist**：只允许 `CONFIG_READ_COMMANDS` 厂商映射内的命令；禁止任意命令拼接、禁止写配置。
+2. **脱敏必达**：配置入库前必须 `redact_config`（password/secret/community/key 值替换为 `********`），明文密钥绝不落库；全文仅存 SHA-256 哈希。
+3. **去重**：`config_full_hash` 相同不产生新快照；`changed=True` 仅当相邻快照 hash 不同。
+4. **有界**：配置快照字节上限 `MAX_CONFIG_SNAPSHOT_BYTES`（512KB），超长截断。
+5. **审计**：任何配置采集/变更必须写 `OperationLog`（action=`device_config_backup`）。
+6. **不做配置下发**：N2 只读备份，diff 只读展示，无下发/回滚/覆盖能力。

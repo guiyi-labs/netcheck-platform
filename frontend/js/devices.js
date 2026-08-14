@@ -84,6 +84,7 @@
         '<td class="text-end text-nowrap">' +
           '<button class="btn btn-sm btn-outline-success btn-icon me-1 js-collect" data-id="' + device.id + '" title="采集"><i class="bi bi-play-fill"></i></button>' +
           (device.has_snmp ? '<button class="btn btn-sm btn-outline-primary btn-icon me-1 js-interfaces" data-id="' + device.id + '" data-name="' + escapeHtml(device.name) + '" title="接口指标"><i class="bi bi-activity"></i></button>' : '') +
+          '<button class="btn btn-sm btn-outline-info btn-icon me-1 js-config" data-id="' + device.id + '" data-name="' + escapeHtml(device.name) + '" title="配置备份与差异"><i class="bi bi-file-earmark-code"></i></button>' +
           '<button class="btn btn-sm btn-outline-secondary btn-icon me-1 js-edit" data-id="' + device.id + '" title="编辑"><i class="bi bi-pencil"></i></button>' +
           '<button class="btn btn-sm btn-outline-danger btn-icon js-delete" data-id="' + device.id + '" title="删除"><i class="bi bi-trash"></i></button>' +
         '</td></tr>';
@@ -263,6 +264,96 @@
     }
   }
 
+  // ---- N2 配置备份与差异 ----
+  async function showConfigs(deviceId, deviceName) {
+    document.getElementById('cfg-device-name').textContent = deviceName;
+    hideError(document.getElementById('cfg-error'));
+    document.getElementById('cfg-tbody').innerHTML = '<tr><td colspan="5" class="text-center text-muted py-2">加载中…</td></tr>';
+    document.getElementById('cfg-diff').textContent = '';
+    document.getElementById('cfg-diff-meta').textContent = '';
+    document.getElementById('cfg-latest').textContent = '';
+    new bootstrap.Modal(document.getElementById('cfgModal')).show();
+    try {
+      var snaps = await api.get('/api/devices/' + deviceId + '/configs?page_size=50');
+      var items = snaps.items || [];
+      renderConfigSnapshots(items, deviceId);
+      // 显示最新配置
+      if (items.length) {
+        var latest = await api.get('/api/devices/' + deviceId + '/configs/latest');
+        document.getElementById('cfg-latest').textContent = latest.config_text_redacted || '(空)';
+        // 自动对比最新两份
+        if (items.length >= 2) {
+          var diff = await api.get('/api/devices/' + deviceId + '/configs/diff');
+          renderConfigDiff(diff);
+        }
+      }
+    } catch (err) {
+      showError(document.getElementById('cfg-error'), '加载配置快照失败：' + err.message);
+    }
+    document.getElementById('cfg-collect-btn').onclick = function () { triggerConfigCollect(deviceId); };
+  }
+
+  function renderConfigSnapshots(items, deviceId) {
+    if (!items.length) {
+      document.getElementById('cfg-tbody').innerHTML =
+        '<tr><td colspan="5" class="text-center text-muted py-2">暂无配置快照（点击"采集配置快照"生成第一份）</td></tr>';
+      return;
+    }
+    document.getElementById('cfg-tbody').innerHTML = items.map(function (s) {
+      return '<tr>' +
+        '<td>' + s.id + '</td>' +
+        '<td class="text-nowrap">' + fmtTime(s.collected_at) + '</td>' +
+        '<td class="text-monospace small" title="' + escapeHtml(s.config_full_hash) + '">' +
+          escapeHtml((s.config_full_hash || '').substring(0, 12)) + '…</td>' +
+        '<td>' + escapeHtml(s.source) + '</td>' +
+        '<td>' + (s.changed ? '<span class="badge bg-warning text-dark">已变更</span>'
+          : '<span class="badge bg-secondary">基准</span>') + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function renderConfigDiff(d) {
+    var meta = document.getElementById('cfg-diff-meta');
+    var el = document.getElementById('cfg-diff');
+    if (!d) { meta.textContent = '无可对比数据'; el.textContent = ''; return; }
+    meta.textContent = (d.from_collected_at ? fmtTime(d.from_collected_at) : d.from_snapshot_id) +
+      ' → ' + (d.to_collected_at ? fmtTime(d.to_collected_at) : d.to_snapshot_id) +
+      (d.changed ? '  变更' : '  相同');
+    el.textContent = d.text || '(无差异)';
+    // 给 diff 行着色
+    el.innerHTML = (d.text || '').split('\n').map(function (line) {
+      if (line.startsWith('+')) return '<span class="text-success">' + escapeHtml(line) + '</span>';
+      if (line.startsWith('-')) return '<span class="text-danger">' + escapeHtml(line) + '</span>';
+      return escapeHtml(line);
+    }).join('\n');
+  }
+
+  async function triggerConfigCollect(deviceId) {
+    var errEl = document.getElementById('cfg-error');
+    hideError(errEl);
+    var btn = document.getElementById('cfg-collect-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>采集中…';
+    try {
+      var res = await api.post('/api/devices/' + deviceId + '/configs/collect', {});
+      if (res.status === 'ok') {
+        showConfigs(deviceId, document.getElementById('cfg-device-name').textContent);
+      } else if (res.status === 'unchanged') {
+        alert('配置内容未变化（hash 相同，未产生新快照）');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>采集配置快照';
+      } else {
+        showError(errEl, '采集失败：' + (res.error || res.status));
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>采集配置快照';
+      }
+    } catch (err) {
+      showError(errEl, '采集请求失败：' + err.message);
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-cloud-download me-1"></i>采集配置快照';
+    }
+  }
+
   // ---- 事件绑定 ----
   document.getElementById('filter-form').addEventListener('submit', function (event) {
     event.preventDefault();
@@ -327,6 +418,8 @@
       triggerCollect([id]);
     } else if (target.classList.contains('js-interfaces')) {
       showInterfaces(id, target.dataset.name || ('#' + id));
+    } else if (target.classList.contains('js-config')) {
+      showConfigs(id, target.dataset.name || ('#' + id));
     } else if (target.classList.contains('js-edit')) {
       var device = state.items.find(function (item) { return item.id === id; });
       if (device) openDeviceModal(device);

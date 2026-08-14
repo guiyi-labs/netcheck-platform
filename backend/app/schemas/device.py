@@ -132,3 +132,60 @@ class DeviceCollectResponse(Response[DeviceCollectStatus]):
 
 class SnmpInterfaceResponse(Response[list[SnmpInterfaceOut]]):
     pass
+
+# ---- N2 配置快照与差异 ----
+
+class DeviceConfigSnapshotOut(BaseModel):
+    """配置快照元信息（不含原始文本内容哈希即可）。"""
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    device_id: int
+    vendor_platform: str
+    config_full_hash: str
+    source: str
+    changed: bool
+    collected_at: datetime
+
+
+class DeviceConfigTextOut(BaseModel):
+    """配置快照详情（脱敏后的文本 + 哈希 + 行数）。"""
+    id: int
+    device_id: int
+    vendor_platform: str
+    config_full_hash: str
+    config_text_redacted: str
+    source: str
+    changed: bool
+    collected_at: datetime
+
+
+class ConfigDiffRow(BaseModel):
+    kind: str  # add / del / context
+    old_line_no: int | None = None
+    new_line_no: int | None = None
+    text: str
+
+
+class ConfigDiffOut(BaseModel):
+    device_id: int
+    from_snapshot_id: int
+    to_snapshot_id: int
+    from_collected_at: datetime
+    to_collected_at: datetime
+    changed: bool
+    rows: list[ConfigDiffRow]
+    text: str = ""  # 统一格式 diff（展示用）
+
+
+class DeviceConfigCollectIn(BaseModel):
+    pass  # POST /collect 仅需 device_id（path），无 body 也可；保留以备 future
+
+
+class DeviceConfigCollectOut(BaseModel):
+    device_id: int
+    status: str  # ok / unchanged / skipped / auth_failed / ...
+    snapshot_id: int | None = None
+    changed: bool | None = None
+    hash: str | None = None
+    command: str | None = None
+    error: str | None = None

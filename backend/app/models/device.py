@@ -37,6 +37,16 @@ SSH_READONLY_COMMANDS = {
     "generic": ["hostname", "uname -a"],
 }
 
+# N2 配置备份：厂商 → 只读配置读取命令（仍属 allowlist，禁止任意命令拼接）
+CONFIG_READ_COMMANDS = {
+    "linux": ["cat /etc/network/interfaces", "cat /etc/ssh/sshd_config",
+              "cat /etc/hosts"],
+    "cisco_ios": ["show running-config"],
+    "generic": ["hostname"],
+}
+# 单次配置备份允许的最大行数/字节数（N2 有界）
+MAX_CONFIG_SNAPSHOT_BYTES = 1024 * 512  # 512 KB
+
 # OID allowlist（SNMP GET/WALK 只允许这些 OID）
 OID_ALLOWLIST: dict[str, list[str]] = {
     "sys": [
@@ -199,3 +209,23 @@ class SnmpInterfaceMetric(Base):
     collected_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
+
+
+class DeviceConfigSnapshot(Base):
+    """N2 配置快照：备份设备只读配置（脱敏后存储 + 全文哈希去重）。
+
+    - config_full_hash: 全文 SHA-256（用于去重与变更检测，不保存明文）
+    - config_text_redacted: 脱敏后的配置文本（password/secret/community/key 值已遮蔽）
+    - 同内容配置不重复入库，仅当 hash 变化才产生新快照
+    """
+
+    __tablename__ = "device_config_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
+    vendor_platform: Mapped[str] = mapped_column(String(64), default="generic")
+    config_full_hash: Mapped[str] = mapped_column(String(64), index=True)
+    config_text_redacted: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(32), default="ssh")  # ssh / manual
+    changed: Mapped[bool] = mapped_column(default=False)  # 与上一快照相比是否变化
+    collected_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)

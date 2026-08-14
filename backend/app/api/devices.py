@@ -5,18 +5,25 @@
 - 写操作 require_write；凭据相关操作 require_admin；
 - 采集接口触发只读采集，绝不改设备配置。
 """
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_user, require_write, require_admin
-from app.models.device import Device, DeviceCredential, SnmpInterfaceMetric
+from app.models.device import Device, DeviceConfigSnapshot, DeviceCredential, SnmpInterfaceMetric
 from app.models.user import User
 from app.schemas.common import Response, PageData
 from app.schemas.device import (
+    ConfigDiffOut,
+    ConfigDiffRow,
     DeviceCollectRequest,
     DeviceCollectResponse,
     DeviceCollectStatus,
+    DeviceConfigCollectOut,
+    DeviceConfigSnapshotOut,
+    DeviceConfigTextOut,
     DeviceCredentialIn,
     DeviceCredentialOut,
     DeviceIn,
@@ -262,3 +269,159 @@ def trigger_collect_one(
         raise HTTPException(status_code=404, detail="设备不存在")
     result = collect_device(db, device)
     return Response(data=DeviceCollectStatus.model_validate(result))
+
+# ---- N2 配置备份与差异 ----
+
+@router.get(
+    "/{device_id}/configs",
+    response_model=Response[PageData[DeviceConfigSnapshotOut]],
+)
+def list_config_snapshots(
+    device_id: int,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[PageData[DeviceConfigSnapshotOut]]:
+    """列出设备的配置快照（升序，最新在后）。"""
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    query = (
+        db.query(DeviceConfigSnapshot)
+        .filter(DeviceConfigSnapshot.device_id == device_id)
+        .order_by(DeviceConfigSnapshot.collected_at.asc())
+    )
+    total = query.count()
+    items = (
+        query.offset((page - 1) * page_size).limit(page_size).all()
+    )
+    return Response(
+        data=PageData(
+            total=total,
+            page=page,
+            page_size=page_size,
+            items=[DeviceConfigSnapshotOut.model_validate(i) for i in items],
+        )
+    )
+
+
+@router.get("/{device_id}/configs/latest", response_model=Response[DeviceConfigTextOut])
+def get_latest_config(
+    device_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[DeviceConfigTextOut]:
+    """获取最新配置快照（脱敏文本）。无快照返回 404。"""
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    snap = (
+        db.query(DeviceConfigSnapshot)
+        .filter(DeviceConfigSnapshot.device_id == device_id)
+        .order_by(DeviceConfigSnapshot.collected_at.desc())
+        .first()
+    )
+    if snap is None:
+        raise HTTPException(status_code=404, detail="尚无配置快照")
+    return Response(data=DeviceConfigTextOut(
+        id=snap.id,
+        device_id=snap.device_id,
+        vendor_platform=snap.vendor_platform,
+        config_full_hash=snap.config_full_hash,
+        config_text_redacted=snap.config_text_redacted,
+        source=snap.source,
+        changed=snap.changed,
+        collected_at=snap.collected_at,
+    ))
+
+
+@router.post("/{device_id}/configs/collect", response_model=Response[DeviceConfigCollectOut])
+def trigger_config_collect(
+    device_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_write),
+) -> Response[DeviceConfigCollectOut]:
+    """触发单台设备的配置备份采集（同步，HttpOnly 凭据加密）。"""
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    from app.services.config_backup import collect_config_snapshot
+
+    result = asyncio.run(collect_config_snapshot(db, device))
+    # 审计日志
+    from app.models.audit import OperationLog
+
+    detail = f"config_backup status={result.get('status')}"
+    if result.get("hash"):
+        detail += f" sha256={result['hash'][:8]}"
+    if result.get("changed"):
+        detail += " changed=True"
+    audit = OperationLog(
+        username=current_user.username,
+        action="device_config_backup",
+        target_type="device",
+        target_id=device_id,
+        detail=detail,
+    )
+    db.add(audit)
+    db.commit()
+    return Response(data=DeviceConfigCollectOut(
+        device_id=device_id,
+        status=result.get("status", "error"),
+        snapshot_id=result.get("snapshot_id"),
+        changed=result.get("changed"),
+        hash=result.get("hash"),
+        command=result.get("command"),
+        error=result.get("error"),
+    ))
+
+
+@router.get("/{device_id}/configs/diff", response_model=Response[ConfigDiffOut])
+def diff_configs_endpoint(
+    device_id: int,
+    from_snapshot_id: int | None = Query(None),
+    to_snapshot_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[ConfigDiffOut]:
+    """对比两个配置快照。默认对比最新两份；可显式 from/to。"""
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    q = (
+        db.query(DeviceConfigSnapshot)
+        .filter(DeviceConfigSnapshot.device_id == device_id)
+        .order_by(DeviceConfigSnapshot.collected_at.desc())
+    )
+    snaps = q.limit(50).all()
+    if not snaps:
+        raise HTTPException(status_code=404, detail="尚无配置快照")
+
+    from app.services.config_backup import diff_configs
+
+    if from_snapshot_id and to_snapshot_id:
+        snaps_map = {s.id: s for s in snaps}
+        older = snaps_map.get(from_snapshot_id)
+        newer = snaps_map.get(to_snapshot_id)
+        if older is None or newer is None:
+            raise HTTPException(status_code=404, detail="快照不存在")
+    elif len(snaps) >= 2:
+        newer = snaps[0]          # 最新
+        older = snaps[1]          # 上一份
+    else:
+        raise HTTPException(status_code=400, detail="快照不足两份，无法对比")
+
+    rows = diff_configs(older.config_text_redacted, newer.config_text_redacted)
+    from app.services.config_backup import format_diff_text
+
+    return Response(data=ConfigDiffOut(
+        device_id=device_id,
+        from_snapshot_id=older.id,
+        to_snapshot_id=newer.id,
+        from_collected_at=older.collected_at,
+        to_collected_at=newer.collected_at,
+        changed=older.config_full_hash != newer.config_full_hash,
+        rows=[ConfigDiffRow(**r) for r in rows],
+        text=format_diff_text(rows),
+    ))
