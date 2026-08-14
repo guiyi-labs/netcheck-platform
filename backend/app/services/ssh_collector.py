@@ -33,6 +33,7 @@ class SshResult:
     error: str | None = None
     facts: dict = field(default_factory=dict)
     raw_outputs: dict[str, str] = field(default_factory=dict)
+    command_errors: dict[str, str] = field(default_factory=dict)
     host_key_fingerprint: str | None = None
 
 
@@ -190,6 +191,7 @@ async def collect_ssh(host: str, port: int, username: str,
         )
         facts: dict[str, str] = {}
         raw: dict[str, str] = {}
+        command_errors: dict[str, str] = {}
         for cmd in commands[:5]:  # 有界
             try:
                 _, stdout, _ = client.exec_command(
@@ -199,15 +201,36 @@ async def collect_ssh(host: str, port: int, username: str,
                 output = _truncated(output)
                 output = _redact_banner(output)
                 raw[cmd] = output
-                parsed = parser(cmd, output)
-                facts.update(parsed)
+                try:
+                    parsed = parser(cmd, output)
+                    facts.update(parsed)
+                except Exception as exc:
+                    # 解析失败：命令执行成功但结构化失败
+                    logger.debug("SSH 解析失败 %s: %s", cmd, exc)
+                    command_errors[cmd] = "parse_failed"
             except Exception as exc:
+                # 命令执行失败：区分「命令不支持」与「执行异常」
+                msg = str(exc).lower()
+                if any(k in msg for k in ("not found", "unknown command", "no such",
+                                           "invalid input", "no command")):
+                    command_errors[cmd] = "cmd_not_supported"
+                else:
+                    command_errors[cmd] = "error"
                 logger.debug("SSH 命令 %s 失败: %s", cmd, exc)
                 raw[cmd] = ""
         client.close()
+        # 全部命令都失败且无任何事实时，标记为对应错误状态而非 ok
+        overall = "ok"
+        if not facts and command_errors:
+            if all(v == "cmd_not_supported" for v in command_errors.values()):
+                overall = "cmd_not_supported"
+            elif any(v == "parse_failed" for v in command_errors.values()):
+                overall = "parse_failed"
+            else:
+                overall = "error"
         return SshResult(
-            status="ok", facts=facts,
-            raw_outputs=raw,
+            status=overall, facts=facts,
+            raw_outputs=raw, command_errors=command_errors,
             host_key_fingerprint=policy.captured,
         )
     except paramiko.AuthenticationException:

@@ -45,6 +45,15 @@ def test_classify_auth_failed():
     assert classify_error(AuthenticationError(), 0) == "auth_failed"
 
 
+def test_classify_priv_failed():
+    """隐私密钥错误 → priv_failed（如 pysnmp 返回含 priv 的错误）。"""
+
+    class PrivError:
+        """模拟 pysnmp 的 PrivError（类名含 priv 即可识别）。"""
+
+    assert classify_error(PrivError(), 0) == "priv_failed"
+
+
 def test_classify_ok():
     assert classify_error(None, 0) == "ok"
 

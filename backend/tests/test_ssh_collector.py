@@ -123,6 +123,8 @@ class _FakeExecClient:
 
     def exec_command(self, cmd, timeout=None):
         self.executed.append(cmd)
+        if cmd == self.fail_cmd:
+            raise Exception("command not found: " + cmd)
 
         class _Out:
             def __init__(self, text):
@@ -131,8 +133,7 @@ class _FakeExecClient:
             def read(self):
                 return self.text.encode()
 
-        return None if cmd == self.fail_cmd else None, \
-            _Out(self.outputs.get(cmd, "")), None
+        return None, _Out(self.outputs.get(cmd, "")), None
 
     def close(self):
         pass
@@ -270,7 +271,7 @@ def test_interface_classify():
 def test_collect_ssh_command_unsupported_falls_through(monkeypatch):
     """个别命令不可用：不回滚整个采集，其他命令继续。"""
     client = _make_ok_client()
-    client.fail_cmd = "uptime"
+    client.fail_cmd = "cat /etc/hosts"  # 前 5 条命令之一（commands[:5] 有界）
 
     async def fake_connect(host, port, username, password, pkey, host_key_policy):
         host_key_policy.captured = "known-fp"
@@ -278,5 +279,64 @@ def test_collect_ssh_command_unsupported_falls_through(monkeypatch):
 
     _patch_factory(monkeypatch, fake_connect)
     result = _run("10.0.0.1", "linux", password="pass")
-    assert result.status == "ok"
+    assert result.status == "ok"  # hostname -f 成功，cat 失败但不阻断
     assert result.facts.get("hostname") == "edge01"
+    assert result.command_errors.get("cat /etc/hosts") == "cmd_not_supported"  # 被拒绝命令标记
+
+
+def test_collect_ssh_all_commands_unsupported_sets_status(monkeypatch):
+    """所有命令都返回 command not found → status=cmd_not_supported。"""
+
+    class _FakeClient:
+        def exec_command(self, cmd, timeout=None):
+            raise Exception("command not found: " + cmd)
+
+        def close(self):
+            pass
+
+    async def fake_connect(host, port, username, password, pkey, host_key_policy):
+        host_key_policy.captured = "fp"
+        return _FakeClient()
+
+    _patch_factory(monkeypatch, fake_connect)
+    result = _run("10.0.0.1", "linux", password="pass")
+    assert result.status == "cmd_not_supported"
+    assert all(v == "cmd_not_supported" for v in result.command_errors.values())
+
+
+def test_collect_ssh_parse_failed_detected(monkeypatch):
+    """解析异常 → command_errors 记录 parse_failed，状态为 parse_failed。"""
+
+    class _FakeClient:
+        def exec_command(self, cmd, timeout=None):
+            class _Out:
+                def read(self):
+                    return b"unexpected binary\n"
+
+            return None, _Out(), None
+
+        def close(self):
+            pass
+
+    # 注册一个会抛异常的 parser
+    def bad_parser(cmd, output):
+        raise ValueError("解析失败")
+
+    from app.services import ssh_collector
+
+    async def fake_connect(host, port, username, password, pkey, host_key_policy):
+        host_key_policy.captured = "fp"
+        return _FakeClient()
+
+    # 替换 PARSERS 里 linux 的 parser
+    original = ssh_collector.PARSERS.get("linux", {}).get("parser", lambda c, o: {})
+    ssh_collector.PARSERS["linux"] = ssh_collector.PARSERS.get("linux", {})
+    ssh_collector.PARSERS["linux"]["parser"] = bad_parser
+
+    try:
+        _patch_factory(monkeypatch, fake_connect)
+        result = _run("10.0.0.1", "linux", password="pass")
+        assert result.status == "parse_failed"
+        assert any(v == "parse_failed" for v in result.command_errors.values())
+    finally:
+        ssh_collector.PARSERS["linux"]["parser"] = original
