@@ -162,6 +162,14 @@ Docker Compose 使用命名 volume 保存运行数据：
 
 本地 `volumes/` 目录用于后续需要直接挂载文件时使用，默认被 `.gitignore` 和 `.dockerignore` 排除。
 
+## 📚 文档导航
+
+完整操作与说明文档见 [`docs/operations/`](docs/operations/README.md)：
+
+- [快速开始](docs/operations/quickstart.md) · [部署手册](docs/operations/deployment.md) · [用户操作手册](docs/operations/user-guide.md)
+- [答辩演示指南](docs/operations/demo-guide.md) · [排障 FAQ](docs/operations/troubleshooting.md)
+- [API 参考](docs/operations/api-reference.md) · [开发指南](docs/operations/development.md)
+
 ## 最终交付材料
 
 最终阶段已整理以下交付文档：
