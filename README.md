@@ -1,5 +1,7 @@
 # 面向中小型网络的自动化巡检与故障诊断平台
 
+![CI](https://github.com/guiyi-labs/netcheck-platform/actions/workflows/ci.yml/badge.svg)
+
 第 0 批目标是搭建 Docker 优先的基础环境，提供后端健康检查、前端入口页、Compose 演示网络和可复现的巡检目标服务。
 
 后端和 Python 演示服务使用 `mcr.microsoft.com/devcontainers/python:3.11-bookworm` 作为基础镜像。这样可以避开部分网络环境下 Docker Hub 拉取 `python:3.11-slim` 不稳定的问题。
