@@ -15,6 +15,8 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(32), default="admin")
+    # 是否允许登录：停用账号保留历史数据但无法登录
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     # 固定 token：登录时生成，登出时清空。同一用户同一时间只有一个有效 token。
     api_token: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     # token 过期时间；为空表示旧数据兼容（不强制过期），新登录一律写入。

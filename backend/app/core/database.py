@@ -20,14 +20,19 @@ def _ensure_sqlite_columns() -> None:
         "users": [
             ("api_token_expires_at", "DATETIME"),
             ("must_change_password", "BOOLEAN DEFAULT 0"),
+            ("is_active", "BOOLEAN DEFAULT 1"),
         ],
         "inspection_tasks": [
             ("schedule_enabled", "BOOLEAN DEFAULT 0"),
             ("schedule_interval_minutes", "INTEGER"),
+            ("schedule_cron", "VARCHAR(128)"),
             ("next_run_at", "DATETIME"),
             ("last_scheduled_run_at", "DATETIME"),
         ],
-        "inspection_runs": [("trigger_type", "VARCHAR(16) DEFAULT 'manual'")],
+        "inspection_runs": [
+            ("trigger_type", "VARCHAR(16) DEFAULT 'manual'"),
+            ("cancel_requested", "BOOLEAN DEFAULT 0"),
+        ],
     }
     with engine.begin() as conn:
         for table, columns in additions.items():

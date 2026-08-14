@@ -30,7 +30,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
             detail=f"登录失败次数过多，账号已锁定，请 {wait} 秒后重试",
         )
     user = db.query(User).filter(User.username == payload.username).first()
-    if user is None or not verify_password(payload.password, user.password_hash):
+    if user is None or not verify_password(payload.password, user.password_hash) or not user.is_active:
         record_failure(payload.username, ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

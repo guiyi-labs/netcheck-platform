@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_write
 from app.models.alert import Alert, AlertPolicy
 from app.models.inspection import InspectionRun
 from app.models.user import User
@@ -92,7 +92,7 @@ def confirm_alert(
     alert_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_write),
 ) -> Response[AlertOut]:
     alert = get_alert(alert_id, db)
     if alert.alert_status == "recovered":
@@ -112,7 +112,7 @@ def recover_alert(
     payload: AlertRecoverRequest | None = None,
     request: Request = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_write),
 ) -> Response[AlertOut]:
     alert = get_alert(alert_id, db)
     alert.alert_status = "recovered"
@@ -146,7 +146,7 @@ def update_policy(
     payload: AlertPolicyUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_write),
 ) -> Response[AlertPolicyOut]:
     policy = get_default_policy(db)
     for field in payload.model_fields_set:

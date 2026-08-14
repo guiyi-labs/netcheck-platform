@@ -11,7 +11,7 @@ import logging
 import queue
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime
 from types import SimpleNamespace
 
 from sqlalchemy.orm import selectinload
@@ -22,6 +22,7 @@ from app.models.inspection import InspectionResult, InspectionRun, InspectionTas
 from app.services.alerts import evaluate_alerts
 from app.services.checkers import CHECKERS
 from app.services.diagnosis import generate_diagnoses, update_asset_statuses
+from app.services.schedule import next_run_at
 
 logger = logging.getLogger("netcheck.executor")
 
@@ -95,12 +96,22 @@ def _worker_loop() -> None:
 
 
 def _next_run_at(task: InspectionTask) -> datetime | None:
-    if not task.enabled or not task.schedule_enabled or not task.schedule_interval_minutes:
-        return None
-    return datetime.now() + timedelta(minutes=task.schedule_interval_minutes)
+    return next_run_at(task.enabled and task.schedule_enabled, task.schedule_cron, task.schedule_interval_minutes)
 
 
-def _execute_checks(run: InspectionRun, task: InspectionTask, db) -> None:
+def _cancel_requested(db, run_id: int) -> bool:
+    row = db.query(InspectionRun.cancel_requested).filter(InspectionRun.id == run_id).scalar()
+    return bool(row)
+
+
+def _execute_checks(run: InspectionRun, task: InspectionTask, db) -> str:
+    """执行一次运行的全部检测。
+
+    返回运行结果状态：
+    - "cancelled"：执行过程中收到取消请求，未持久化任何结果；
+    - "failed"：全部检测结果均为失败（可整体重试）；
+    - "ok"：至少有一条成功/警告结果。
+    """
     check_types = [item for item in task.check_types.split(",") if item]
     # 只把纯数据交给检测线程：SQLAlchemy Session/ORM 实例不能跨线程共享，
     # 线程只读资产标量字段并返回纯字典，由主线程统一构造 ORM 对象。
@@ -144,18 +155,30 @@ def _execute_checks(run: InspectionRun, task: InspectionTask, db) -> None:
         return rows
 
     all_rows: list[dict] = []
+    cancelled = False
     if settings.check_concurrency <= 1 or len(plain_assets) <= 1:
         for plain in plain_assets:
+            if cancelled:
+                break
             all_rows.extend(run_asset(plain))
+            cancelled = _cancel_requested(db, run.id)
     else:
         workers = min(settings.check_concurrency, len(plain_assets))
         with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="check") as pool:
             futures = [pool.submit(run_asset, plain) for plain in plain_assets]
             for future in as_completed(futures):
-                all_rows.extend(future.result())
+                if not cancelled:
+                    all_rows.extend(future.result())
+                if not cancelled:
+                    cancelled = _cancel_requested(db, run.id)
+    if cancelled:
+        return "cancelled"
     for row in all_rows:
         db.add(InspectionResult(run_id=run.id, **row))
     db.commit()
+    if all_rows and all(row["status"] == "failed" for row in all_rows):
+        return "failed"
+    return "ok"
 
 
 def process_run(run_id: int) -> None:
@@ -180,7 +203,22 @@ def process_run(run_id: int) -> None:
         run.status = "running"
         db.commit()
 
-        _execute_checks(run, task, db)
+        outcome = _execute_checks(run, task, db)
+        if outcome == "cancelled":
+            run.status = "cancelled"
+            run.finished_at = datetime.now()
+            db.commit()
+            return
+        if outcome == "failed":
+            # 全部检测失败：仍执行诊断/告警以便观察，但运行整体标记为 failed 可重试
+            generate_diagnoses(run.id, db)
+            evaluate_alerts(run.id, db)
+            update_asset_statuses(run.id, db)
+            run.status = "failed"
+            run.error_message = "全部检查项均失败"
+            run.finished_at = datetime.now()
+            db.commit()
+            return
 
         # 先完成诊断、告警、资产状态回写，再标记运行完成；否则轮询方会在
         # 后处理尚未落库时就看到 completed，导致竞态（原先同步执行无此问题）。

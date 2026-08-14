@@ -33,4 +33,29 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="认证令牌已过期，请重新登录",
         )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="账号已被停用，请联系管理员",
+        )
     return user
+
+
+def require_write(current_user: User = Depends(get_current_user)) -> User:
+    """所有写操作依赖：viewer（只读）角色无权执行。"""
+    if current_user.role == "viewer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只读用户无权执行此操作",
+        )
+    return current_user
+
+
+def require_admin(current_user: User = Depends(get_current_user)) -> User:
+    """用户管理、系统配置等仅管理员可执行。"""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理员权限",
+        )
+    return current_user

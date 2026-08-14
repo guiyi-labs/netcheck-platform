@@ -16,7 +16,7 @@
   function time(value) { if (!value) return '-'; var d = new Date(value); return isNaN(d.getTime()) ? escapeHtml(value) : d.toLocaleString('zh-CN', { hour12: false }); }
   function statusClass(status) { return { success: 'status-success', warning: 'status-warning', failed: 'status-failed' }[status] || 'status-unknown'; }
   function statusLabel(status) { return { success: '成功', warning: '警告', failed: '失败' }[status] || status || '-'; }
-  function typeLabel(type) { return { ping: 'Ping', port: '端口', http: 'HTTP' }[type] || type || '-'; }
+  function typeLabel(type) { return { ping: 'Ping', port: '端口', http: 'HTTP', tls: 'TLS证书' }[type] || type || '-'; }
   function value(id) { return document.getElementById(id).value.trim(); }
   function setInitialFilters() {
     Object.keys(fields).forEach(function (key) { var v = query.get(key); if (v) document.getElementById(fields[key]).value = v; });

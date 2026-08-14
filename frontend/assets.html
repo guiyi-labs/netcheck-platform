@@ -21,9 +21,18 @@
     <main class="container-fluid app-main">
       <div class="d-flex flex-wrap align-items-center justify-content-between mb-3">
         <h4 class="mb-0"><i class="bi bi-hdd-stack me-1"></i>资产管理</h4>
-        <button class="btn btn-primary btn-sm" id="btn-create">
-          <i class="bi bi-plus-lg me-1"></i>新增资产
-        </button>
+        <div class="d-flex flex-wrap gap-2">
+          <a class="btn btn-outline-primary btn-sm" href="/api/assets/export" id="btn-export" title="导出全部资产为 CSV">
+            <i class="bi bi-download me-1"></i>导出 CSV
+          </a>
+          <label class="btn btn-outline-secondary btn-sm mb-0" for="import-file" title="从 CSV 批量导入资产">
+            <i class="bi bi-upload me-1"></i>导入 CSV
+            <input type="file" id="import-file" accept=".csv,text/csv" class="d-none" />
+          </label>
+          <button class="btn btn-primary btn-sm" id="btn-create">
+            <i class="bi bi-plus-lg me-1"></i>新增资产
+          </button>
+        </div>
       </div>
 
       <!-- 筛选表单 -->
@@ -363,6 +372,7 @@
               '<td><span class="status-badge ' + statusClass(st) + '">' + statusLabel(st) + '</span></td>' +
               '<td class="text-end text-nowrap">' +
                 '<button class="btn btn-sm btn-outline-primary btn-icon me-1 js-edit" data-id="' + escapeHtml(it.id) + '" title="编辑"><i class="bi bi-pencil"></i></button>' +
+                '<a class="btn btn-sm btn-outline-secondary btn-icon me-1 js-changes" href="asset-changes.html?asset_id=' + encodeURIComponent(it.id) + '" title="变更历史"><i class="bi bi-clock-history"></i></a>' +
                 '<button class="btn btn-sm btn-outline-danger btn-icon js-del" data-id="' + escapeHtml(it.id) + '" title="删除"><i class="bi bi-trash"></i></button>' +
               '</td>' +
               '</tr>';
@@ -565,6 +575,63 @@
           } catch (err) {
             showListError('删除失败：' + err.message);
           }
+        }
+
+        // ---- 导出 CSV ----
+        var btnExport = document.getElementById('btn-export');
+        if (btnExport) {
+          btnExport.addEventListener('click', async function (e) {
+            e.preventDefault();
+            hideListError();
+            btnExport.disabled = true;
+            try {
+              var token = localStorage.getItem('netcheck_token') || '';
+              var resp = await fetch('/api/assets/export', { headers: { Authorization: 'Bearer ' + token } });
+              if (!resp.ok) throw new Error('导出失败 HTTP ' + resp.status);
+              var blob = await resp.blob();
+              var url = URL.createObjectURL(blob);
+              var a = document.createElement('a');
+              a.href = url;
+              a.download = 'assets.csv';
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              URL.revokeObjectURL(url);
+            } catch (err) {
+              showListError('导出失败：' + err.message);
+            } finally {
+              btnExport.disabled = false;
+            }
+          });
+        }
+
+        // ---- 导入 CSV ----
+        var importFile = document.getElementById('import-file');
+        if (importFile) {
+          importFile.addEventListener('change', async function () {
+            var file = importFile.files && importFile.files[0];
+            importFile.value = '';
+            if (!file) return;
+            hideListError();
+            try {
+              var form = new FormData();
+              form.append('file', file);
+              var token = localStorage.getItem('netcheck_token') || '';
+              var resp = await fetch('/api/assets/import', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer ' + token },
+                body: form,
+              });
+              var payload = await resp.json().catch(function () { return null; });
+              if (!resp.ok || !payload || payload.code !== 0) {
+                throw new Error((payload && (payload.detail || payload.message)) || ('导入失败 HTTP ' + resp.status));
+              }
+              window.alert('导入完成：成功 ' + payload.data.imported + ' 条，跳过 ' + payload.data.skipped + ' 条');
+              loadList();
+            } catch (err) {
+              showListError('导入失败：' + err.message);
+            }
+          });
         }
 
         // 初始加载

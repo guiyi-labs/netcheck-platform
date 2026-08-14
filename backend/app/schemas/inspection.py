@@ -3,7 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
-CHECK_TYPES = {"ping", "port", "http", "dns"}
+CHECK_TYPES = {"ping", "port", "http", "dns", "tls"}
 
 
 class TaskBase(BaseModel):
@@ -14,6 +14,7 @@ class TaskBase(BaseModel):
     enabled: bool = True
     schedule_enabled: bool = False
     schedule_interval_minutes: int | None = Field(default=None, ge=1)
+    schedule_cron: str | None = Field(default=None, max_length=128)
 
 
 class TaskCreate(TaskBase):
@@ -39,6 +40,7 @@ class RunOut(BaseModel):
     task_id: int
     status: str
     trigger_type: str
+    cancel_requested: bool
     started_at: datetime
     finished_at: datetime | None
     error_message: str | None

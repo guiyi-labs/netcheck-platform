@@ -4,6 +4,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import SessionLocal
 from app.models.inspection import InspectionTask
+from app.services.schedule import cron_trigger, interval_trigger
 
 
 class SchedulerService:
@@ -30,6 +31,11 @@ class SchedulerService:
         for task_id in task_ids:
             self.reload_task(task_id)
 
+    def _build_trigger(self, task: InspectionTask):
+        if task.schedule_cron:
+            return cron_trigger(task.schedule_cron)
+        return interval_trigger(task.schedule_interval_minutes)
+
     def reload_task(self, task_id: int) -> None:
         job_id = self._job_id(task_id)
         if self.scheduler.get_job(job_id):
@@ -37,11 +43,13 @@ class SchedulerService:
         db = SessionLocal()
         try:
             task = db.get(InspectionTask, task_id)
-            if task is None or not task.enabled or not task.schedule_enabled or not self._schedule_interval(task):
+            if task is None or not task.enabled or not task.schedule_enabled:
+                return
+            if not task.schedule_cron and not task.schedule_interval_minutes:
                 return
             self.scheduler.add_job(
                 self.scheduled_run_task,
-                trigger=IntervalTrigger(minutes=task.schedule_interval_minutes),
+                trigger=self._build_trigger(task),
                 args=[task_id],
                 id=job_id,
                 replace_existing=True,
@@ -79,10 +87,6 @@ class SchedulerService:
             enqueue_task_run(task_id, trigger_type="scheduled")
         finally:
             db.close()
-
-    @staticmethod
-    def _schedule_interval(task: InspectionTask) -> int | None:
-        return task.schedule_interval_minutes
 
     @staticmethod
     def _job_id(task_id: int) -> str:

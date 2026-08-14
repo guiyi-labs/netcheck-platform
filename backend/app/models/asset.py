@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -27,3 +27,19 @@ class Asset(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class AssetChangeLog(Base):
+    """资产变更日志：字段级记录资产的新增/更新/删除，用于变更追溯。"""
+
+    __tablename__ = "asset_change_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id"), index=True)
+    action: Mapped[str] = mapped_column(String(16))  # create / update / delete
+    field: Mapped[str] = mapped_column(String(64), default="")
+    old_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    new_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    username: Mapped[str] = mapped_column(String(64))
+    detail: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    changed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)

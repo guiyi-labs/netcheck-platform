@@ -5,7 +5,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_write
 from app.models.inspection import InspectionRun
 from app.models.report import Report
 from app.models.user import User
@@ -26,7 +26,7 @@ def generate_report(
     payload: ReportGenerateIn,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_write),
 ) -> Response[ReportOut]:
     if payload.report_type == "run":
         if payload.run_id is None:
@@ -76,7 +76,7 @@ def delete_report(
     report_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_write),
 ) -> Response[ReportOut]:
     report = db.get(Report, report_id)
     if report is None:

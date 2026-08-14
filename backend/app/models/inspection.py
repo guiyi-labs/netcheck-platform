@@ -24,6 +24,8 @@ class InspectionTask(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     schedule_enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     schedule_interval_minutes: Mapped[int | None] = mapped_column(nullable=True)
+    # 可选 Cron 表达式（如 "0 */2 * * *"）；配置后优先于分钟间隔
+    schedule_cron: Mapped[str | None] = mapped_column(String(128), nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_scheduled_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -41,6 +43,7 @@ class InspectionRun(Base):
     task_id: Mapped[int] = mapped_column(ForeignKey("inspection_tasks.id"), index=True)
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     trigger_type: Mapped[str] = mapped_column(String(16), default="manual", index=True)
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

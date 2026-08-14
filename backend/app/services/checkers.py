@@ -1,9 +1,11 @@
 import platform
 import socket
+import ssl
 import subprocess
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 
 import httpx
 import dns.resolver
@@ -112,4 +114,64 @@ class DnsChecker(BaseChecker):
             return [CheckResult("failed", target, elapsed, error_message=str(exc))]
 
 
-CHECKERS = {checker.check_type: checker for checker in (PingChecker(), PortChecker(), HttpChecker(), DnsChecker())}
+class TlsChecker(BaseChecker):
+    """TLS 证书检测：连接 HTTPS 端口，校验证书有效期。
+
+    - 优先使用资产配置的端口（含 443/8443 等 TLS 端口），未配置时默认探测 443；
+    - 证书剩余天数低于 tls_expiry_warning_days 判定为 warning，已过期判定为 failed。
+    """
+
+    check_type = "tls"
+
+    def check(self, asset: Asset) -> list[CheckResult]:
+        configured = [int(value.strip()) for value in (asset.ports or "").split(",") if value.strip().isdigit() and 1 <= int(value.strip()) <= 65535]
+        tls_ports = [port for port in configured if port in (443, 8443, 9443)]
+        # 资产配置了 TLS 端口就用它，否则默认探测 443
+        ports = tls_ports or [443]
+        results = []
+        for port in ports:
+            target = f"{asset.ip}:{port}"
+            start = time.monotonic()
+            try:
+                context = ssl.create_default_context()
+                with socket.create_connection((asset.ip, port), timeout=settings.tcp_timeout) as raw:
+                    with context.wrap_socket(raw, server_hostname=asset.hostname or asset.ip) as sock:
+                        cert = sock.getpeercert()
+                        elapsed = round((time.monotonic() - start) * 1000, 2)
+                        if not cert:
+                            results.append(CheckResult("warning", target, elapsed, "TLS 握手成功但未取得证书信息"))
+                            continue
+                        not_after = cert.get("notAfter", "")
+                        expires_at = _parse_cert_time(not_after)
+                        if expires_at is None:
+                            results.append(CheckResult("success", target, elapsed, f"TLS 握手成功（证书解析失败: {not_after}）"))
+                            continue
+                        days_left = (expires_at - datetime.now()).days
+                        issuer = dict(cert.get("issuer", [])).get("commonName", "") or dict(cert.get("issuer", [])).get("organizationName", "") or "未知"
+                        if days_left < 0:
+                            results.append(CheckResult("failed", target, elapsed, error_message=f"TLS 证书已过期 {-days_left} 天（{not_after}）"))
+                        elif days_left <= settings.tls_expiry_warning_days:
+                            results.append(CheckResult("warning", target, elapsed, f"TLS 证书即将过期，剩余 {days_left} 天（{not_after}）"))
+                        else:
+                            results.append(CheckResult("success", target, elapsed, f"TLS 证书有效，剩余 {days_left} 天（签发者 {issuer}）"))
+            except Exception as exc:
+                elapsed = round((time.monotonic() - start) * 1000, 2)
+                results.append(CheckResult("failed", target, elapsed, error_message=str(exc)))
+        return results
+
+
+def _parse_cert_time(value: str) -> datetime | None:
+    """解析证书 notAfter 时间（如 'Aug 14 09:30:00 2026 GMT'）。"""
+    try:
+        return datetime.strptime(value.strip(), "%b %d %H:%M:%S %Y %Z")
+    except ValueError:
+        try:
+            import email.utils
+
+            parsed = email.utils.parsedate_to_datetime(value.strip())
+            return parsed.replace(tzinfo=None)
+        except Exception:
+            return None
+
+
+CHECKERS = {checker.check_type: checker for checker in (PingChecker(), PortChecker(), HttpChecker(), DnsChecker(), TlsChecker())}

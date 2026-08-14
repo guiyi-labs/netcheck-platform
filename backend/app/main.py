@@ -15,6 +15,7 @@ from app.api.results import router as results_router
 from app.api.routes import router as api_router
 from app.api.scheduler import router as scheduler_router
 from app.api.topology import router as topology_router
+from app.api.users import router as users_router
 from app.core.config import settings
 from app.core.database import init_db
 from app.services import executor
@@ -65,3 +66,4 @@ app.include_router(assets_router)
 app.include_router(scheduler_router)
 app.include_router(discovery_router)
 app.include_router(topology_router)
+app.include_router(users_router)

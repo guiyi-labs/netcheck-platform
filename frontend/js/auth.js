@@ -90,6 +90,7 @@
               '<li class="nav-item"><a class="nav-link' + activeClass('alerts.html') + '" href="alerts.html"><i class="bi bi-bell me-1"></i>告警中心</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('reports.html') + '" href="reports.html"><i class="bi bi-file-earmark-spreadsheet me-1"></i>报告管理</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('audit.html') + '" href="audit.html"><i class="bi bi-journal-text me-1"></i>审计日志</a></li>' +
+              (role === 'admin' ? '<li class="nav-item"><a class="nav-link' + activeClass('users.html') + '" href="users.html"><i class="bi bi-people me-1"></i>用户管理</a></li>' : '') +
             '</ul>' +
             '<ul class="navbar-nav align-items-center">' +
               '<li class="nav-item dropdown">' +

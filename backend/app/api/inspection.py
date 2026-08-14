@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_write
 from app.models.asset import Asset
 from app.models.inspection import InspectionResult, InspectionRun, InspectionTask
 from app.models.user import User
@@ -12,6 +12,7 @@ from app.schemas.common import PageData, Response
 from app.schemas.inspection import CHECK_TYPES, ResultOut, RunOut, TaskCreate, TaskOut, TaskUpdate
 from app.services import audit
 from app.services.executor import TERMINAL_STATUSES, enqueue_task_run
+from app.services.schedule import next_run_at, validate_cron
 
 router = APIRouter(
     prefix="/api/tasks",
@@ -42,6 +43,7 @@ def task_out(task: InspectionTask) -> TaskOut:
         enabled=task.enabled,
         schedule_enabled=task.schedule_enabled,
         schedule_interval_minutes=task.schedule_interval_minutes,
+        schedule_cron=task.schedule_cron,
         next_run_at=task.next_run_at,
         last_scheduled_run_at=task.last_scheduled_run_at,
         created_at=task.created_at,
@@ -64,8 +66,13 @@ def get_task(task_id: int, db: Session) -> InspectionTask:
 def set_task_values(task: InspectionTask, payload: TaskCreate | TaskUpdate, db: Session) -> None:
     if not set(payload.check_types).issubset(CHECK_TYPES):
         raise HTTPException(status_code=422, detail="不支持的检测类型")
-    if payload.schedule_enabled and not payload.schedule_interval_minutes:
-        raise HTTPException(status_code=422, detail="启用定时巡检时必须设置间隔分钟数")
+    if payload.schedule_enabled and not payload.schedule_interval_minutes and not payload.schedule_cron:
+        raise HTTPException(status_code=422, detail="启用定时巡检时必须设置间隔分钟数或 Cron 表达式")
+    if payload.schedule_cron:
+        try:
+            validate_cron(payload.schedule_cron)
+        except Exception:
+            raise HTTPException(status_code=422, detail="Cron 表达式不合法") from None
     assets = db.query(Asset).filter(Asset.id.in_(payload.asset_ids)).all()
     if len(assets) != len(set(payload.asset_ids)):
         raise HTTPException(status_code=422, detail="存在不存在的资产")
@@ -75,8 +82,13 @@ def set_task_values(task: InspectionTask, payload: TaskCreate | TaskUpdate, db: 
     task.enabled = payload.enabled
     task.schedule_enabled = payload.schedule_enabled
     task.schedule_interval_minutes = payload.schedule_interval_minutes
+    task.schedule_cron = payload.schedule_cron
     task.next_run_at = _next_run_at(task)
     task.assets = assets
+
+
+def _next_run_at(task: InspectionTask) -> datetime | None:
+    return next_run_at(task.enabled and task.schedule_enabled, task.schedule_cron, task.schedule_interval_minutes)
 
 
 @router.get("", response_model=Response[PageData[TaskOut]])
@@ -96,7 +108,7 @@ def create_task(
     payload: TaskCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_write),
 ) -> Response[TaskOut]:
     task = InspectionTask()
     set_task_values(task, payload, db)
@@ -128,7 +140,7 @@ def update_task(
     payload: TaskUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_write),
 ) -> Response[TaskOut]:
     task = get_task(task_id, db)
     set_task_values(task, payload, db)
@@ -151,7 +163,7 @@ def enable_task(
     task_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_write),
 ) -> Response[TaskOut]:
     task = get_task(task_id, db)
     task.enabled = True
@@ -167,7 +179,7 @@ def disable_task(
     task_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_write),
 ) -> Response[TaskOut]:
     task = get_task(task_id, db)
     task.enabled = False
@@ -183,7 +195,7 @@ def run_task(
     task_id: int,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_write),
 ) -> Response[RunOut]:
     task = get_task(task_id, db)
     if not task.enabled:
@@ -218,6 +230,55 @@ def get_run(run_id: int, db: Session = Depends(get_db)) -> Response[RunOut]:
     if run is None:
         raise HTTPException(status_code=404, detail="运行记录不存在")
     return Response(data=RunOut.model_validate(run))
+
+
+@router.post("/runs/{run_id}/cancel", response_model=Response[RunOut])
+def cancel_run(
+    run_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_write),
+) -> Response[RunOut]:
+    """请求取消执行中的运行：置 cancel_requested，执行器在资产粒度检查后终止。"""
+    run = db.get(InspectionRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="运行记录不存在")
+    if run.status not in ("pending", "running"):
+        raise HTTPException(status_code=409, detail="运行已结束，无法取消")
+    run.cancel_requested = True
+    audit.record(db, current_user.username, "run.cancel", target_type="run", target_id=run_id, detail=f"取消运行 #{run_id}", request=request)
+    db.commit()
+    db.refresh(run)
+    return Response(message="已请求取消运行", data=RunOut.model_validate(run))
+
+
+@router.post("/runs/{run_id}/retry", response_model=Response[RunOut])
+def retry_run(
+    run_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_write),
+) -> Response[RunOut]:
+    """对已结束（failed/cancelled/completed）的运行按原任务重新提交一条新运行。"""
+    run = db.get(InspectionRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="运行记录不存在")
+    task = get_task(run.task_id, db)
+    if not task.enabled:
+        raise HTTPException(status_code=409, detail="巡检任务已停用，无法重试")
+    new_run_id = enqueue_task_run(task.id, trigger_type="manual")
+    audit.record(
+        db,
+        current_user.username,
+        "run.retry",
+        target_type="run",
+        target_id=new_run_id,
+        detail=f"重试运行 #{run_id}（任务 {task.name}）",
+        request=request,
+    )
+    db.expire_all()
+    new_run = db.get(InspectionRun, new_run_id)
+    return Response(message="已重新提交执行", data=RunOut.model_validate(new_run))
 
 
 @router.get("/runs/{run_id}/results", response_model=Response[PageData[ResultOut]])
