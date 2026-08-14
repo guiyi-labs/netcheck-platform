@@ -6,3 +6,6 @@ volumes/
 *.log
 node_modules/
 dist/
+
+# IDE
+.idea/
