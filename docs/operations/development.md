@@ -85,3 +85,12 @@ cd frontend && python3 -m http.server 8080
 4. **通知不阻塞巡检**：`dispatch_alert_notifications` 任何异常只记日志。
 5. **指标格式**：Prometheus `# TYPE/# HELP` 必须用裸指标名；标签只出现在样例行。
 6. **配置外置**：新增可配置项务必走 `config.py` + `.env.example`。
+
+## 8. N1 设备采集约束（改动前必读）
+
+1. **凭据绝不回显**：`DeviceCredential` 密钥字段必须在写库前 `encrypt_secret`；API/日志/前端只允许 `has_secret`/算法/摘要。
+2. **OID 白名单**：只允许 `sys*` 与 `ifTable` 子树（`DEVICE_OID_ALLOWLIST`），禁止任意 OID 浏览器。
+3. **SSH 只读**：命令必须来自 `SSH_READONLY_COMMANDS` 厂商 allowlist；host key 校验走 `HostKeyPolicy`，禁止 `AutoAddPolicy`。
+4. **速率真实语义**：首样本/缺样本速率必须 `None`（页面显示 unknown），禁止 0 或绿色冒充健康；64 位计数器回绕按 2^64 修正。
+5. **有界采集**：接口数、请求数、命令数、输出字节数、批量设备数都有上限（config 可调）。
+6. **失败分类清晰**：`auth_failed/priv_failed/timeout/host_key_unknown/host_key_mismatch/conn_refused` 必须映射到设备 `collect_status`。

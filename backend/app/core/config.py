@@ -48,6 +48,20 @@ class Settings(BaseSettings):
     ai_model: str = ""
     ai_timeout: float = 30.0
 
+    # ---- 设备采集（N1：SNMPv3 / SSH 只读）----
+    # 凭据加密密钥（AES-256-GCM）；不设置时凭据只加密为占位标记并标记不可用
+    secret_key: str = ""
+    # SNMPv3 采集上限
+    snmp_timeout: float = 5.0
+    snmp_retries: int = 1
+    snmp_max_interfaces: int = 64
+    snmp_max_requests: int = 30
+    # SSH 采集上限
+    ssh_timeout: float = 10.0
+    ssh_max_output_bytes: int = 524288
+    # 单次批量采集设备数上限
+    device_collect_max_batch: int = 8
+
     # ---- 其他 ----
     log_level: str = "INFO"
 

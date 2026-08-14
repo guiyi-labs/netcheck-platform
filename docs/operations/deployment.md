@@ -134,6 +134,21 @@ NETCHECK_DATABASE_URL=mysql+pymysql://netcheck:netcheck@netcheck-mysql:3306/netc
 | NETCHECK_AI_MODEL | "" | 模型名 |
 | NETCHECK_AI_TIMEOUT | 30.0 | 请求超时 |
 
+### 设备采集（N1：SNMPv3 / SSH 只读）
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| NETCHECK_SECRET_KEY | "" | 凭据加密密钥（AES-256-GCM），生产用随机 32+ 字符 |
+| NETCHECK_SNMP_TIMEOUT | 5.0 | SNMP 请求超时（秒） |
+| NETCHECK_SNMP_RETRIES | 1 | SNMP 重试次数 |
+| NETCHECK_SNMP_MAX_INTERFACES | 64 | 单设备最大采集接口数 |
+| NETCHECK_SNMP_MAX_REQUESTS | 30 | 单设备最大 SNMP 请求次数 |
+| NETCHECK_SSH_TIMEOUT | 10.0 | SSH 连接超时（秒） |
+| NETCHECK_SSH_MAX_OUTPUT_BYTES | 524288 | SSH 命令输出最大字节数（512KB） |
+| NETCHECK_DEVICE_COLLECT_MAX_BATCH | 8 | 单次批量采集最多设备数 |
+
+> 依赖新增：`pysnmp==7.1.28`、`paramiko==5.0.0`、`cryptography==50.0.0`。
+
 ## 7. 备份与恢复
 
 ```bash

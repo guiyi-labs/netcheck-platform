@@ -15,6 +15,8 @@ for suffix in ("", "-wal", "-shm"):
         os.remove(_p)
 os.environ["NETCHECK_DATABASE_URL"] = f"sqlite:///{_test_db.as_posix()}"
 os.environ["NETCHECK_REPORTS_DIR"] = str(Path(tempfile.gettempdir()) / "netcheck_reports_test")
+# N1 设备采集：测试用固定 secret key（凭据为测试数据，无真实 Secret）
+os.environ["NETCHECK_SECRET_KEY"] = "netcheck-test-secret-key-000000"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

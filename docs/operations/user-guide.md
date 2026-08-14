@@ -21,6 +21,7 @@
 |---|---|---|
 | 仪表盘 | index.html | 资产/任务/告警/诊断统计卡片 + 近 7 天运行趋势 + 故障类型分布 + 最近异常 |
 | 资产管理 | assets.html | 资产增删改查、状态、批量导入导出 CSV、历史变更入口 |
+| 设备采集 | devices.html | SNMPv3/SSH 只读采集：设备登记、凭据管理、接口指标与速率（N1） |
 | 资产发现 | discovery.html | 网段 ping/端口扫描，结果回填资产 |
 | 逻辑拓扑 | topology.html | 资产间连通关系视图 |
 | 巡检任务 | tasks.html | 任务 CRUD、启用/停用、Cron 调度、触发运行 |
@@ -78,6 +79,7 @@ demo-web-ok,10.0.0.1,,443
 
 | 功能 | 入口 | 说明 |
 |---|---|---|
+| 设备采集 | devices.html | 创建 SNMPv3/SSH 凭据 → 登记设备（管理 IP + 厂商 + 凭据引用）→ 触发采集 → 查看接口指标与速率 |
 | 资产导入导出 | assets.html | 导出带 BOM 的 CSV，Excel 可直接打开 |
 | 网络诊断 | diag.html | 输入 IP/域名跑 traceroute，看逐跳 RTT 与中断点 |
 | 趋势分析 | trends.html | 选资产 + 天数（1-90），看延迟/可用率/耗时 |

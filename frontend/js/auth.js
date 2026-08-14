@@ -82,6 +82,7 @@
             '<ul class="navbar-nav me-auto">' +
               '<li class="nav-item"><a class="nav-link' + activeClass('index.html') + '" href="index.html"><i class="bi bi-speedometer2 me-1"></i>仪表盘</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('assets.html') + '" href="assets.html"><i class="bi bi-hdd-stack me-1"></i>资产管理</a></li>' +
+              '<li class="nav-item"><a class="nav-link' + activeClass('devices.html') + '" href="devices.html"><i class="bi bi-router me-1"></i>设备采集</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('discovery.html') + '" href="discovery.html"><i class="bi bi-radar me-1"></i>资产发现</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('topology.html') + '" href="topology.html"><i class="bi bi-diagram-3 me-1"></i>逻辑拓扑</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('tasks.html') + activeClass('task-run.html') + '" href="tasks.html"><i class="bi bi-clipboard2-pulse me-1"></i>巡检任务</a></li>' +

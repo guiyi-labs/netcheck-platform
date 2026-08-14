@@ -10,3 +10,6 @@ pydantic-settings==2.14.2
 pytest==9.1.1
 sqlalchemy==2.0.51
 uvicorn==0.51.0
+pysnmp==7.1.28
+paramiko==5.0.0
+cryptography==50.0.0

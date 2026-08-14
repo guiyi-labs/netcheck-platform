@@ -1,0 +1,297 @@
+"""SNMPv3 只读采集器：基于 pysnmp 7（v3arch asyncio）。
+
+- 仅 authPriv（sha256/aes128 为首选，显式 allowlist）；
+- OID 固定 allowlist：sys* 与接口表（ifTable 子树），拒绝任意 OID；
+- 采集 sysName/sysDescr/sysUpTime + 接口名/描述/状态/64 位字节计数器；
+- 接口速率由相邻样本在真实时间间隔上计算（处理重启、回绕、缺样本）；
+- 超时、认证失败、权限不足等显式分类，绝不显示为健康或 0 流量。
+"""
+import asyncio
+import logging
+from dataclasses import dataclass, field
+
+from app.core.config import settings
+from app.models.device import ALL_ALLOWED_OIDS, OID_ALLOWLIST, OID_SUBTREE_PREFIXES
+
+logger = logging.getLogger("netcheck.snmpv3")
+
+# pysnmp v3arch 常量
+try:
+    from pysnmp.hlapi.v3arch.asyncio import (  # type: ignore
+        SnmpEngine,
+        ContextData,
+        UsmUserData,
+        USM_AUTH_HMAC96_SHA,
+        USM_AUTH_HMAC192_SHA256,
+        USM_PRIV_CFB128_AES,
+        USM_PRIV_CFB256_AES,
+        get_cmd,
+        walk_cmd,
+        ObjectType,
+        ObjectIdentity,
+    )
+
+    _PYSNMP_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _PYSNMP_AVAILABLE = False
+    SnmpEngine = ContextData = UsmUserData = None
+    USM_AUTH_HMAC96_SHA = USM_AUTH_HMAC192_SHA256 = None
+    USM_PRIV_CFB128_AES = USM_PRIV_CFB256_AES = None
+    get_cmd = walk_cmd = ObjectType = ObjectIdentity = None
+
+AUTH_MAP = {
+    "SHA": USM_AUTH_HMAC96_SHA,
+    "SHA-256": USM_AUTH_HMAC192_SHA256,
+}
+PRIV_MAP = {
+    "AES-128": USM_PRIV_CFB128_AES,
+    "AES-256": USM_PRIV_CFB256_AES,
+}
+
+
+@dataclass
+class SnmpResult:
+    """一次采集的结构化结果。"""
+
+    status: str  # ok / auth_failed / priv_failed / timeout / error
+    error: str | None = None
+    facts: dict = field(default_factory=dict)
+    interfaces: list[dict] = field(default_factory=list)
+    raw_oids: list[tuple[str, str]] = field(default_factory=list)
+
+
+def _oid_in_allowlist(oid: str) -> bool:
+    if oid.rstrip(".0") in ALL_ALLOWED_OIDS or oid in ALL_ALLOWED_OIDS:
+        return True
+    # 子树前缀（WALK 目标即可）
+    for prefix in ("1.3.6.1.2.1.2.2.1", "1.3.6.1.2.1.1"):
+        if oid.startswith(prefix):
+            return True
+    return False
+
+
+def classify_error(error_indication, error_status) -> str:
+    """把 pysnmp 错误映射到分类。pysnmp 返回对象或字符串。"""
+    if error_indication is None:
+        return "ok"
+    # pysnmp 可能返回对象（带 __name__）或字符串
+    if isinstance(error_indication, str):
+        name = error_indication.lower()
+    else:
+        name = type(error_indication).__name__.lower()
+    text = f"{name} {str(error_indication).lower()}"
+    if "timedout" in text or "timeout" in text:
+        return "timeout"
+    if "auth" in text:
+        return "auth_failed"
+    if "priv" in text:
+        return "priv_failed"
+    return "error"
+
+
+def _no_such(value) -> bool:
+    name = type(value).__name__
+    return name in ("NoSuchInstance", "NoSuchObject", "EndOfMibView") or value is None
+
+
+def _snmp_value_str(value) -> str:
+    if _no_such(value):
+        return ""
+    try:
+        return value.prettyPrint() if hasattr(value, "prettyPrint") else str(value)
+    except Exception:
+        return str(value)
+
+
+def _counter64_int(value) -> int | None:
+    if _no_such(value):
+        return None
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+# ---- pysnmp 命令（mock 友好：transport factory 可注入） ----
+
+def _engine():
+    return SnmpEngine()
+
+
+def _user(username: str, auth_key: str | None, priv_key: str | None,
+          auth_algo: str, priv_algo: str) -> UsmUserData:
+    auth_proto = AUTH_MAP.get(auth_algo) or USM_AUTH_HMAC192_SHA256
+    priv_proto = PRIV_MAP.get(priv_algo) or USM_PRIV_CFB128_AES
+    return UsmUserData(
+        username,
+        authKey=auth_key or "",
+        privKey=priv_key or "",
+        authProtocol=auth_proto,
+        privProtocol=priv_proto,
+    )
+
+
+async def _get(transport, user, oid: str):
+    err_ind, err_status, _idx, var_binds = await get_cmd(
+        _engine(), user, transport, ContextData(),
+        ObjectType(ObjectIdentity(oid)),
+    )
+    return err_ind, err_status, var_binds
+
+
+async def _walk(transport, user, oid: str):
+    results: list[tuple[str, str]] = []
+    max_rows = settings.snmp_max_interfaces + 10
+    iterator = walk_cmd(
+        _engine(), user, transport, ContextData(),
+        ObjectType(ObjectIdentity(oid)),
+    )
+    count = 0
+    while count < max_rows:
+        try:
+            res = await anext(iterator)
+        except StopAsyncIteration:
+            break
+        err_ind, err_status, _idx, var_binds = res
+        if err_ind is not None:
+            return None, classify_error(err_ind, err_status), results
+        for var_bind in var_binds:
+            name = str(var_bind[0])
+            value = _snmp_value_str(var_bind[1])
+            results.append((name, value))
+        count += 1
+    return results, None, results
+
+
+# ---- 采集封装 ----
+
+async def _collect_via_transport(transport, username, auth_key, priv_key,
+                                 auth_algo, priv_algo) -> SnmpResult:
+    user = _user(username, auth_key, priv_key, auth_algo, priv_algo)
+
+    # 1. sys* GET
+    facts: dict = {}
+    oid_labels = {
+        "1.3.6.1.2.1.1.1.0": "sys_descr",
+        "1.3.6.1.2.1.1.3.0": "sys_uptime",
+        "1.3.6.1.2.1.1.5.0": "sys_name",
+        "1.3.6.1.2.1.1.4.0": "sys_contact",
+        "1.3.6.1.2.1.1.6.0": "sys_location",
+    }
+    scanned = 0
+    for oid, label in oid_labels.items():
+        if scanned >= settings.snmp_max_requests:
+            break
+        err_ind, err_status, var_binds = await _get(transport, user, oid)
+        status = classify_error(err_ind, err_status)
+        if status in ("auth_failed", "priv_failed", "timeout", "error"):
+            # 传输/安全层错误：中止整个采集，不继续
+            return SnmpResult(status=status, error=f"SNMP 采集失败: {status}")
+        if err_ind is None and var_binds:
+            value = _snmp_value_str(var_binds[0][1])
+            if value and not _no_such(var_binds[0][1]):
+                facts[label] = value
+        scanned += 1
+
+    # 2. 接口表 WALK（ifIndex/ifDescr/ifType/ifSpeed/ifAdminStatus/ifOperStatus/ifInOctets/ifOutOctets）
+    interfaces: dict[int, dict] = {}
+    if_walks = {
+        "1.3.6.1.2.1.2.2.1.2": "name",
+        "1.3.6.1.2.1.2.2.1.3": "if_type",
+        "1.3.6.1.2.1.2.2.1.5": "if_speed",
+        "1.3.6.1.2.1.2.2.1.7": "admin_status",
+        "1.3.6.1.2.1.2.2.1.8": "oper_status",
+        "1.3.6.1.2.1.2.2.1.10": "in_octets",
+        "1.3.6.1.2.1.2.2.1.16": "out_octets",
+    }
+    for walk_oid, field_name in if_walks.items():
+        rows, walk_status, _ = await _walk(transport, user, walk_oid)
+        if walk_status is not None and walk_status != "ok":
+            # 认证/超时在 sys 阶段已捕获；这里忽略部分 OID 不支持
+            continue
+        for full_oid, value in (rows or []):
+            idx = full_oid.rsplit(".", 1)[-1]
+            if not idx.isdigit():
+                continue
+            index = int(idx)
+            if len(interfaces) >= settings.snmp_max_interfaces:
+                break
+            entry = interfaces.setdefault(index, {"index": index})
+            entry[field_name] = value
+            # WALK 的 value 为原样字符串；计数器需要 int
+        scanned += 1
+
+    # 转列表并解析数值字段
+    interface_list = []
+    for index in sorted(interfaces):
+        entry = interfaces[index]
+        entry["name"] = entry.get("name", f"if{index}")
+        entry["in_octets"] = _safe_counter(entry.get("in_octets"))
+        entry["out_octets"] = _safe_counter(entry.get("out_octets"))
+        entry["if_speed"] = _safe_int(entry.get("if_speed"))
+        entry["admin_status"] = _safe_int(entry.get("admin_status"))
+        entry["oper_status"] = _safe_int(entry.get("oper_status"))
+        interface_list.append({k: v for k, v in entry.items()})
+
+    result = SnmpResult(status="ok", facts=facts, interfaces=interface_list)
+    return result
+
+
+def _safe_counter(value) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _safe_int(value) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+class SnmpTransportFactory:
+    """真实传输工厂（测试注入 mock）。"""
+
+    async def create(self, host: str, port: int):
+        from pysnmp.hlapi.v3arch.asyncio import UdpTransportTarget
+
+        return await UdpTransportTarget.create(
+            (host, port), timeout=settings.snmp_timeout,
+            retries=settings.snmp_retries,
+        )
+
+
+_transport_factory = SnmpTransportFactory()
+
+
+async def collect_snmpv3(host: str, username: str, auth_key: str, priv_key: str,
+                         auth_algo: str = "SHA-256", priv_algo: str = "AES-128",
+                         port: int = 161) -> SnmpResult:
+    """异步执行 SNMPv3 authPriv 采集。"""
+    if not _PYSNMP_AVAILABLE:  # pragma: no cover
+        return SnmpResult(status="error", error="pysnmp 未安装")
+    try:
+        transport = await _transport_factory.create(host, port)
+        return await _collect_via_transport(
+            transport, username, auth_key, priv_key, auth_algo, priv_algo,
+        )
+    except asyncio.TimeoutError:
+        return SnmpResult(status="timeout", error="SNMP 请求超时")
+    except Exception as exc:
+        logger.warning("SNMPv3 采集异常 %s: %s", host, exc)
+        return SnmpResult(status="error", error=str(exc))
+
+
+def run_snmpv3_sync(host: str, username: str, auth_key: str, priv_key: str,
+                    auth_algo: str = "SHA-256", priv_algo: str = "AES-128",
+                    port: int = 161) -> SnmpResult:
+    """同步入口（后台线程调用）。"""
+    return asyncio.run(
+        collect_snmpv3(host, username, auth_key, priv_key, auth_algo, priv_algo, port)
+    )

@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>设备管理 - 自动化巡检与故障诊断平台</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
+      rel="stylesheet"
+    />
+    <link href="css/app.css" rel="stylesheet" />
+  </head>
+  <body>
+    <!-- 顶部导航栏（由 auth.js 渲染） -->
+    <div id="app-nav"></div>
+
+    <main class="container-fluid app-main">
+      <div class="d-flex flex-wrap align-items-center justify-content-between mb-3">
+        <div>
+          <h4 class="mb-0"><i class="bi bi-router me-1"></i>设备管理</h4>
+          <div class="text-muted small mt-1">
+            SNMPv3 / SSH 只读采集（N1）。凭据加密存储，页面只显示状态与指纹，不显示任何密钥。
+          </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <button class="btn btn-outline-primary btn-sm" id="btn-credential">
+            <i class="bi bi-key me-1"></i>凭据管理
+          </button>
+          <button class="btn btn-outline-secondary btn-sm" id="btn-collect-all" title="采集勾选设备">
+            <i class="bi bi-play-fill me-1"></i>采集选中
+          </button>
+          <button class="btn btn-primary btn-sm" id="btn-create">
+            <i class="bi bi-plus-lg me-1"></i>新增设备
+          </button>
+        </div>
+      </div>
+
+      <!-- 筛选表单 -->
+      <div class="card filter-card mb-3">
+        <div class="card-body">
+          <form id="filter-form" class="row g-2 align-items-end" novalidate>
+            <div class="col-12 col-md-3">
+              <label class="form-label" for="f-vendor">厂商平台</label>
+              <select id="f-vendor" class="form-select">
+                <option value="">全部</option>
+                <option value="linux">Linux</option>
+                <option value="cisco_ios">Cisco IOS</option>
+                <option value="generic">Generic</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-3 d-grid">
+              <button type="submit" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-funnel me-1"></i>筛选
+              </button>
+            </div>
+            <div class="col-12 col-md-6 text-muted small align-self-center">
+              <i class="bi bi-info-circle me-1"></i>勾选设备后可批量采集。空状态显示 unknown，不会显示为 0 或健康。
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- 列表 -->
+      <div class="card">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width: 36px"><input type="checkbox" id="check-all" /></th>
+                  <th>名称</th>
+                  <th>管理 IP</th>
+                  <th>厂商</th>
+                  <th>协议</th>
+                  <th>采集状态</th>
+                  <th>事实/SysName</th>
+                  <th>最后采集</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="device-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="d-flex align-items-center justify-content-between mt-2">
+        <span id="page-info" class="small text-muted"></span>
+        <div class="btn-group btn-group-sm">
+          <button class="btn btn-outline-secondary" id="btn-prev">上一页</button>
+          <button class="btn btn-outline-secondary" id="btn-next">下一页</button>
+        </div>
+      </div>
+      <div id="list-error" class="alert alert-danger d-none mt-2"></div>
+    </main>
+
+    <!-- 新增/编辑设备模态框 -->
+    <div class="modal fade" id="deviceModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <form id="device-form" novalidate>
+            <div class="modal-header">
+              <h5 class="modal-title" id="deviceModalLabel">新增设备</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div id="form-error" class="alert alert-danger d-none"></div>
+              <input type="hidden" id="device-id" />
+              <div class="mb-3">
+                <label class="form-label">名称 <span class="text-danger">*</span></label>
+                <input class="form-control" id="m-name" required />
+              </div>
+              <div class="mb-3">
+                <label class="form-label">管理 IP <span class="text-danger">*</span></label>
+                <input class="form-control" id="m-ip" required placeholder="10.0.0.1" />
+              </div>
+              <div class="mb-3">
+                <label class="form-label">厂商/平台</label>
+                <select class="form-select" id="m-vendor">
+                  <option value="linux">Linux（SNMP agent / sshd）</option>
+                  <option value="cisco_ios">Cisco IOS</option>
+                  <option value="generic">Generic</option>
+                </select>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">SNMPv3 凭据</label>
+                <select class="form-select" id="m-snmp-cred"><option value="">未配置</option></select>
+                <div class="form-text">需先创建 SNMPv3 凭据（authPriv）。</div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">SSH 凭据</label>
+                <select class="form-select" id="m-ssh-cred"><option value="">未配置</option></select>
+                <div class="form-text">需先创建 SSH 凭据并登记 host key 指纹。</div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+              <button type="submit" class="btn btn-primary" id="btn-save">
+                <span class="spinner-border spinner-border-sm d-none me-1" id="save-spin"></span>
+                <span id="save-text">新建</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- 凭据管理模态框 -->
+    <div class="modal fade" id="credModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">设备凭据（加密存储）</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div id="cred-error" class="alert alert-danger d-none"></div>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead class="table-light">
+                  <tr>
+                    <th>名称</th><th>协议</th><th>用户名</th><th>算法</th><th>密钥状态</th><th>外部引用</th><th style="width: 80px">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="cred-tbody"></tbody>
+              </table>
+            </div>
+            <hr />
+            <h6 class="mb-2"><i class="bi bi-plus-circle me-1"></i>新建凭据</h6>
+            <form id="cred-form" class="row g-2" novalidate>
+              <div class="col-12 col-md-3">
+                <label class="form-label small mb-0">名称</label>
+                <input class="form-control form-control-sm" id="c-name" required />
+              </div>
+              <div class="col-12 col-md-3">
+                <label class="form-label small mb-0">协议</label>
+                <select class="form-select form-select-sm" id="c-protocol">
+                  <option value="snmp_v3">SNMPv3</option>
+                  <option value="ssh">SSH</option>
+                </select>
+              </div>
+              <div class="col-12 col-md-3">
+                <label class="form-label small mb-0">用户名</label>
+                <input class="form-control form-control-sm" id="c-username" required />
+              </div>
+              <div class="col-12 col-md-3" id="c-algo-col">
+                <label class="form-label small mb-0">算法</label>
+                <select class="form-select form-select-sm" id="c-algo">
+                  <option value="SHA-256">SHA-256 / AES-128</option>
+                  <option value="SHA">SHA-1 / AES-128</option>
+                  <option value="AES-256">SHA-256 / AES-256</option>
+                </select>
+              </div>
+              <div class="col-12 col-md-4 d-none" id="c-pass-col">
+                <label class="form-label small mb-0">SSH 密码</label>
+                <input type="password" class="form-control form-control-sm" id="c-password" autocomplete="new-password" />
+              </div>
+              <div class="col-12 col-md-4">
+                <label class="form-label small mb-0">认证密钥 <span class="text-danger">*</span></label>
+                <input type="password" class="form-control form-control-sm" id="c-auth" autocomplete="new-password" />
+              </div>
+              <div class="col-12 col-md-4" id="c-priv-col">
+                <label class="form-label small mb-0">隐私密钥 <span class="text-danger">*</span></label>
+                <input type="password" class="form-control form-control-sm" id="c-priv" autocomplete="new-password" />
+              </div>
+              <div class="col-12 col-md-4">
+                <label class="form-label small mb-0">外部 Secret 引用（可选）</label>
+                <input class="form-control form-control-sm" id="c-secret-ref" placeholder="vault://path 或 k8s secret name" />
+              </div>
+              <div class="col-12">
+                <button class="btn btn-sm btn-primary" id="btn-save-cred">
+                  <span class="spinner-border spinner-border-sm d-none me-1" id="cred-spin"></span>
+                  保存凭据
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 接口指标详情模态框 -->
+    <div class="modal fade" id="ifModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="ifModalLabel">接口指标</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div id="if-error" class="alert alert-danger d-none"></div>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead class="table-light">
+                  <tr>
+                    <th>接口</th><th>状态</th><th>In 计数</th><th>Out 计数</th><th>In 速率</th><th>Out 速率</th><th>采集时间</th>
+                  </tr>
+                </thead>
+                <tbody id="if-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/devices.js"></script>
+  </body>
+</html>

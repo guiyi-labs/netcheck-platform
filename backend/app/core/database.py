@@ -74,6 +74,7 @@ def init_db() -> None:
     from app.models import alert as _alert  # noqa: F401
     from app.models import asset as _asset  # noqa: F401
     from app.models import audit as _audit  # noqa: F401
+    from app.models import device as _device  # noqa: F401
     from app.models import discovery as _discovery  # noqa: F401
     from app.models import inspection as _inspection  # noqa: F401
     from app.models import report as _report  # noqa: F401

@@ -134,3 +134,32 @@
 
 - **原因**：模型服务网络不通/超时/密钥无效。
 - **解决**：看后端日志 `AI 诊断增强失败: ...`；本地可先 `curl` 测 `$BASE_URL/chat/completions`。
+
+## 7. 设备采集（N1）
+
+### 7.1 凭据解密失败 / 采集报错「缺少密钥」
+
+- **原因**：`NETCHECK_SECRET_KEY` 未配置，或配置的值与加密时不一致。
+- **解决**：`.env` 设置 `NETCHECK_SECRET_KEY=<随机 32+ 字符>`，重启后端。注意：**凭据加密时使用的 key 必须与解密时一致**，更换 key 需重新录入凭据。
+
+### 7.2 SNMPv3 认证失败（collect_status = auth_failed）
+
+- **原因**：auth_key / username / 认证算法不匹配设备配置。
+- **排查**：确认设备 SNMPv3 用户名、authPriv 参数（authKey/authProtocol/privKey/privProtocol），对比 `GET /api/devices/{id}` 中 `last_collect_error`。
+- **注意**：snmp3 的 authKey 和 privKey 是密钥（非密码），长度受算法限制（SHA-256 需 ≥ 12 字节）。
+
+### 7.3 SSH host key 未知（collect_status = host_key_unknown）
+
+- **原因**：首次连接，host key 未登记。
+- **解决**：首次采集后设备会记录 `host_key_fingerprint`；再次触发采集时若 fingerprint 不变则自动通过。若指纹变了（设备重装），删除设备重新添加并更新 fingerprint。
+- **安全**：host key 未知时采集立即中止，不降级为 AutoAdd。
+
+### 7.4 SSH 超时（collect_status = timeout）
+
+- **原因**：SSH 端口（22）未开放或不可达。
+- **排查**：确认管理 IP 可 ping、22 端口已监听（`nc -zv <ip> 22`）、`NETCHECK_SSH_TIMEOUT` 设置足够（默认 10s）。
+
+### 7.5 接口速率显示 unknown
+
+- **原因**：首样本无相邻数据，或计数器重启（超过 2^32 下降），或速率超 100Gbps（sanity check）。
+- **正常**：这是设计行为，不是 bug。采集 2 次以上后才会产生速率。

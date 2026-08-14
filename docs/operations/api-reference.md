@@ -105,14 +105,56 @@ curl -s -X POST "http://localhost:8000/api/diagnostics/traceroute?target=8.8.8.8
   -H "Authorization: Bearer $TOKEN"
 ```
 
-## 7. 告警 `/api/alerts` · `/api/alert-policy`
+## 7. 设备采集（N1）`/api/devices`
+
+| 方法 | 路径 | 说明 | 鉴权 |
+|---|---|---|---|
+| POST | /api/devices/credentials | 创建设备凭据（SNMPv3/SSH，AES-256-GCM 加密存储） | admin |
+| GET | /api/devices/credentials | 凭据列表（只返回状态与算法，不返回密钥） | 登录 |
+| DELETE | /api/devices/credentials/{id} | 删除凭据 | admin |
+| POST | /api/devices | 新增设备（管理 IP、厂商平台、凭据引用） | 写 |
+| GET | /api/devices | 设备分页（vendor 筛选） | 登录 |
+| GET | /api/devices/{id} | 设备详情（含采集状态、设备事实） | 登录 |
+| PUT | /api/devices/{id} | 更新设备 | 写 |
+| DELETE | /api/devices/{id} | 删除设备（连带接口指标） | 写 |
+| GET | /api/devices/{id}/interfaces | 接口指标（速率、计数器、状态） | 登录 |
+| POST | /api/devices/collect | 批量触发采集（≤ 8 台，同步） | 写 |
+| POST | /api/devices/{id}/collect | 触发单台采集 | 写 |
+
+采集示例（登录后）:
+
+```bash
+# 1) 创建凭据（响应不回显密钥）
+curl -s -X POST http://localhost:8000/api/devices/credentials \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"core-snmp","protocol":"snmp_v3","username":"monitor",
+       "auth_key":"...","priv_key":"...","auth_algorithm":"SHA-256","priv_algorithm":"AES-128"}'
+
+# 2) 新增设备并绑定凭据
+curl -s -X POST http://localhost:8000/api/devices \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"core-router-01","management_ip":"10.0.0.1","vendor_platform":"linux","snmp_config_id":1}'
+
+# 3) 触发采集
+curl -s -X POST http://localhost:8000/api/devices/1/collect \
+  -H "Authorization: Bearer $TOKEN"
+
+# 4) 查看接口指标
+curl -s http://localhost:8000/api/devices/1/interfaces \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+> 采集状态：`idle/collecting/success/failed` + 失败分类 `auth_failed/priv_failed/timeout/host_key_unknown/host_key_mismatch/conn_refused`。
+> 空样本显示 `unknown`，不显示 0 或健康。
+
+## 8. 告警 `/api/alerts` · `/api/alert-policy`
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | /api/alerts | 告警分页（level/status 筛选） |
 | GET/POST | /api/alert-policy/status | 策略与启停（以 OpenAPI 为准） |
 
-## 8. 报告 `/api/reports`
+## 9. 报告 `/api/reports`
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -122,7 +164,7 @@ curl -s -X POST "http://localhost:8000/api/diagnostics/traceroute?target=8.8.8.8
 | GET | /api/reports/{report_id}/download | 下载报告文件 |
 | DELETE | /api/reports/{report_id} | 删除报告 |
 
-## 9. 发现与拓扑 `/api/discovery` · `/api/topology`
+## 10. 发现与拓扑 `/api/discovery` · `/api/topology`
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -131,7 +173,7 @@ curl -s -X POST "http://localhost:8000/api/diagnostics/traceroute?target=8.8.8.8
 | GET | /api/discovery/scans/{scan_id}/results | 扫描结果 |
 | GET | /api/topology | 连通拓扑（资产 IP 间关系） |
 
-## 10. 统计与仪表盘
+## 11. 统计与仪表盘
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -145,7 +187,7 @@ curl -s -X POST "http://localhost:8000/api/diagnostics/traceroute?target=8.8.8.8
 | GET | /api/stats/availability?asset_id&days | 每日可用率 % |
 | GET | /api/stats/run-durations?days&limit | 最近运行耗时 |
 
-## 11. 系统与可观测
+## 12. 系统与可观测
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -156,7 +198,7 @@ curl -s -X POST "http://localhost:8000/api/diagnostics/traceroute?target=8.8.8.8
 | GET | /api/users | 用户管理（admin）——list/create/update/delete |
 | WS | /ws/runs?token= | 运行状态实时推送 |
 
-## 12. 数据模型要点
+## 13. 数据模型要点
 
 - 资产 `Asset`：name/ip/hostname/ports/check_types/status（online/offline/warning/unknown）
 - 任务 `InspectionTask`：check_types + assets(m2m) + schedule_cron + enabled
@@ -164,4 +206,7 @@ curl -s -X POST "http://localhost:8000/api/diagnostics/traceroute?target=8.8.8.8
 - 结果 `InspectionResult`：asset_id + check_type + status（success/warning/failed）+ response_time
 - 告警 `Alert`：level（minor/warning/major/critical）+ status（active/recovered）
 - 诊断 `DiagnosisRecord`：fault_type + severity + suggestion + evidence
+- **设备 `Device`**（N1）：management_ip + vendor_platform + snmp_config_id/ssh_config_id + collect_status + sys_name/sys_uptime/os_version
+- **凭据 `DeviceCredential`**（N1）：protocol（snmp_v3/ssh）+ username + 加密字段 + auth/priv 算法
+- **接口指标 `SnmpInterfaceMetric`**（N1）：interface_index/name + admin/oper_status + if_in/out_octets（64 位）+ in/out_rate_bps + status
 - 完整建表脚本见 `docs/final-delivery/database-schema.md`（历史快照，字段以实际 ORM 为准）
