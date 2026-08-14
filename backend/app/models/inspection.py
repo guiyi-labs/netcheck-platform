@@ -94,3 +94,19 @@ class DiagnosisRecord(Base):
     run = relationship("InspectionRun", back_populates="diagnosis_records")
     result = relationship("InspectionResult", back_populates="diagnosis_records")
     asset = relationship("Asset")
+
+
+class TaskLock(Base):
+    """分布式调度锁：多实例环境下防止同一巡检任务被并发重复执行。
+
+    - 同一 task_id 同一时刻只能被一个 worker（实例）持有；
+    - expires_at 为锁超时（默认加锁后 10 分钟），过期后其他实例可抢占；
+    - 实例正常结束时主动释放锁（execute_lock.release_lock）。
+    """
+
+    __tablename__ = "task_locks"
+
+    task_id: Mapped[int] = mapped_column(ForeignKey("inspection_tasks.id"), primary_key=True)
+    worker_id: Mapped[str] = mapped_column(String(64))
+    acquired_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime)

@@ -22,13 +22,14 @@ from app.models.inspection import InspectionResult, InspectionRun, InspectionTas
 from app.services.alerts import evaluate_alerts
 from app.services.checkers import CHECKERS
 from app.services.diagnosis import generate_diagnoses, update_asset_statuses
+from app.services.execute_lock import acquire_lock, release_lock
 from app.services.schedule import next_run_at
 
 logger = logging.getLogger("netcheck.executor")
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
-_run_queue: queue.Queue[int | None] = queue.Queue()
+_run_queue: queue.Queue[int | None] = queue.Queue(maxsize=settings.run_queue_maxsize)
 _worker: threading.Thread | None = None
 _stop = threading.Event()
 _started = False
@@ -62,7 +63,10 @@ def shutdown() -> None:
 
 
 def enqueue_task_run(task_id: int, trigger_type: str = "manual") -> int:
-    """创建 pending 运行记录并入队，返回 run_id。"""
+    """创建 pending 运行记录并入队，返回 run_id。
+
+    队列满（run_queue_maxsize）时不排队，直接标记运行 failed，避免无限堆积。
+    """
     db = SessionLocal()
     try:
         run = InspectionRun(task_id=task_id, status="pending", trigger_type=trigger_type)
@@ -72,8 +76,25 @@ def enqueue_task_run(task_id: int, trigger_type: str = "manual") -> int:
         run_id = run.id
     finally:
         db.close()
-    submit_run(run_id)
+    try:
+        _run_queue.put_nowait(run_id)
+    except queue.Full:
+        _mark_queued_run_failed(run_id)
     return run_id
+
+
+def _mark_queued_run_failed(run_id: int) -> None:
+    """队列已满时立即将运行标记失败，由 API 层返回 429 语义（当前返回 200 + failed 运行）。"""
+    db = SessionLocal()
+    try:
+        run = db.get(InspectionRun, run_id)
+        if run is not None and run.status == "pending":
+            run.status = "failed"
+            run.error_message = "巡检执行队列已满，请稍后重试"
+            run.finished_at = datetime.now()
+            db.commit()
+    finally:
+        db.close()
 
 
 def submit_run(run_id: int) -> None:
@@ -184,6 +205,7 @@ def _execute_checks(run: InspectionRun, task: InspectionTask, db) -> str:
 def process_run(run_id: int) -> None:
     """完整处理一次运行。由 worker 线程调用，使用独立数据库会话。"""
     db = SessionLocal()
+    lock_held = False
     try:
         run = db.get(InspectionRun, run_id)
         if run is None or run.status != "pending":
@@ -200,6 +222,15 @@ def process_run(run_id: int) -> None:
             run.finished_at = datetime.now()
             db.commit()
             return
+        # 分布式执行锁：同一任务同一时刻只允许一个实例执行；
+        # 拿不到锁说明另一实例/线程正在执行同任务（或锁未过期），标记失败而不是排队堆积。
+        if not acquire_lock(db, task.id):
+            run.status = "failed"
+            run.error_message = "任务正在被其他实例执行，已跳过本次运行（分布式锁）"
+            run.finished_at = datetime.now()
+            db.commit()
+            return
+        lock_held = True
         run.status = "running"
         db.commit()
 
@@ -250,4 +281,9 @@ def process_run(run_id: int) -> None:
         except Exception:
             db.rollback()
     finally:
+        if lock_held and run is not None:
+            try:
+                release_lock(db, run.task_id)
+            except Exception:
+                logger.exception("运行 %s 释放任务锁失败", run_id)
         db.close()

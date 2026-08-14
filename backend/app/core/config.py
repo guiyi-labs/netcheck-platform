@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     slow_response_threshold: float = 2000.0
     # 巡检执行并发：同一运行内并行检测的资产数
     check_concurrency: int = 8
+    # 待执行运行队列上限：超过后新的运行直接标记 failed（避免排队堆积）
+    run_queue_maxsize: int = 1000
     # TLS 证书检测：剩余天数低于该值判定为即将过期（警告）
     tls_expiry_warning_days: int = 30
 

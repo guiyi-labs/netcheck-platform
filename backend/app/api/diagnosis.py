@@ -4,8 +4,10 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.inspection import DiagnosisRecord, InspectionRun
+from app.models.user import User
 from app.schemas.common import PageData, Response
 from app.schemas.diagnosis import DiagnosisOut
+from app.services.ai_diagnosis import enhance_diagnosis
 from app.services.diagnosis import generate_diagnoses, update_asset_statuses
 
 router = APIRouter(
@@ -80,3 +82,30 @@ def get_diagnosis(diagnosis_id: int, db: Session = Depends(get_db)) -> Response[
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="诊断记录不存在")
     return Response(data=DiagnosisOut.model_validate(record))
+
+
+@router.post("/{diagnosis_id}/ai-suggestion", response_model=Response[dict])
+def ai_diagnosis_suggestion(
+    diagnosis_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[dict]:
+    """AI 增强建议（可选）：基于诊断结论调用 LLM 生成进一步排查建议。"""
+    record = db.get(DiagnosisRecord, diagnosis_id)
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="诊断记录不存在")
+    asset = record.asset
+    diagnosis = {
+        "asset_id": record.asset_id,
+        "asset_name": asset.name if asset else None,
+        "ip": asset.ip if asset else None,
+        "check_type": record.check_type,
+        "fault_type": record.fault_type,
+        "level": record.severity,
+        "evidence": record.evidence,
+        "suggestion": record.suggestion,
+    }
+    result = enhance_diagnosis(diagnosis)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="AI 诊断增强未启用，请配置 NETCHECK_AI_* 后重试")
+    return Response(message="AI 建议生成完成" if result["status"] == "ok" else "AI 服务调用失败", data=result)

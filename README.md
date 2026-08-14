@@ -73,6 +73,14 @@ curl http://localhost:18082
 任务取消 / 失败重试 / Cron 调度、多用户与角色权限（admin/operator/viewer）、TLS 证书检测器
 （有效期预警）、资产变更日志与历史查询。
 
+阶段 C（真实网络能力）新增能力：容器网络适配验证（frontend Dockerfile 补齐页面 +
+`scripts/verify-container-network.sh`）、Traceroute 网络诊断（`diag.html` / `POST /api/diagnostics/traceroute`）、
+Nmap 增强发现与 SNMP 基础采集（可选依赖，自动回落）、局域网验证脚本 `scripts/verify-lan.sh`。
+
+阶段 D（进阶扩展）新增能力：AI 辅助诊断（OpenAI 兼容接口，`POST /api/diagnosis/{id}/ai-suggestion`）、
+Prometheus 指标导出（`GET /metrics`，零依赖 text format）、K8s 巡检脚本 `scripts/k8s-inspect.sh`、
+分布式执行锁（多实例防重复）、有界执行队列（`run_queue_maxsize` 防堆积）。
+
 接口示例：
 
 ```powershell
@@ -100,6 +108,7 @@ curl.exe -s http://localhost:8000/api/assets -H "Authorization: Bearer $token"
 - `POST /api/tasks/runs/{run_id}/cancel`（取消执行）、`POST /api/tasks/runs/{run_id}/retry`（失败重试）
 - `GET /api/diagnosis`、`GET /api/diagnosis/{id}`、`GET /api/diagnosis/runs/{run_id}`
 - `POST /api/diagnosis/runs/{run_id}/generate`
+- `POST /api/diagnosis/{id}/ai-suggestion`（AI 辅助诊断建议，可选）
 - `GET /api/dashboard/summary`、`GET /api/dashboard/asset-status`
 - `GET /api/dashboard/trend`、`GET /api/dashboard/fault-types`、`GET /api/dashboard/recent-abnormal`
 - `GET /api/results`
@@ -112,6 +121,8 @@ curl.exe -s http://localhost:8000/api/assets -H "Authorization: Bearer $token"
 - `POST /api/discovery/results/{id}/import`
 - `GET /api/topology`
 - `GET /api/audit-logs`（审计日志查询，支持用户/动作/对象/日期筛选）
+- `POST /api/diagnostics/traceroute`（Traceroute 网络诊断）
+- `GET /metrics`（Prometheus 指标导出，无鉴权）
 
 巡检演示建议选择资产 `demo-web-ok`、`demo-web-error`、`demo-web-slow`，检测类型选择 Ping、端口、HTTP、DNS，可复现 HTTP 200、HTTP 500、慢响应警告和 Docker 服务名 DNS 解析，并自动生成故障诊断、告警与资产状态回写结果。随后可在「仪表盘」查看统计图表，在「资产发现」扫描授权地址，在「逻辑拓扑」查看资产拓扑，在「报告管理」按运行 ID 生成并下载 Excel 报告。
 

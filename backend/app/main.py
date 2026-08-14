@@ -11,6 +11,7 @@ from app.api.diagnostics import router as diagnostics_router
 from app.api.diagnosis import router as diagnosis_router
 from app.api.discovery import router as discovery_router
 from app.api.inspection import router as inspection_router
+from app.api.metrics import router as metrics_router
 from app.api.reports import router as reports_router
 from app.api.results import router as results_router
 from app.api.routes import router as api_router
@@ -69,3 +70,4 @@ app.include_router(discovery_router)
 app.include_router(topology_router)
 app.include_router(users_router)
 app.include_router(diagnostics_router)
+app.include_router(metrics_router)
