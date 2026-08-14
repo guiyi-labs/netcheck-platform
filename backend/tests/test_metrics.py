@@ -16,5 +16,6 @@ def test_metrics_unauthenticated_and_text_format(client: TestClient):
     assert "netcheck_assets_total 12" in text  # 12 条演示资产
     assert "# HELP netcheck_tasks_total" in text
     assert "# HELP netcheck_alerts_total" in text
-    # Prometheus 标签语法
-    assert "netcheck_assets_by_status{" in text
+    # Prometheus 标签语法：TYPE 用裸指标名，样例行携带 label
+    assert '# TYPE netcheck_assets_by_status gauge' in text
+    assert 'netcheck_assets_by_status{label="online"} ' in text

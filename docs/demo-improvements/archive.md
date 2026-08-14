@@ -66,11 +66,25 @@
 ## 6. 验证结果
 
 ```text
-110 passed in 12.92s
+110 passed in 10.64s
 ```
 
 新增测试：`test_realtime.py`(4) `test_stats.py`(5) `test_notification_adapters.py`(5)。
-（G3 的 compose/供给/面板在宿主机 Docker 环境验证，不在 pytest 内。）
+
+### 6.1 实机验证（本机 Docker，已跑通）
+
+```text
+targets:  [('netcheck-backend', 'up', '')]
+assets_total: 12
+netcheck_assets_by_status{label="online"} 7 / offline 3 / warning 1 / unknown 1
+Grafana datasources:  [('Prometheus', 'prometheus', 'prometheus')]
+Grafana dashboards:   [('NetCheck 巡检平台总览', 'netcheck-overview')]
+```
+
+期间修复一个问题：Prometheus text format 要求 `# TYPE/# HELP` 行使用裸指标名（不能带
+`{label=...}`），原实现把标签写进 TYPE 行导致抓取报
+`invalid metric type ... gauge` 目标变 down。已改为 `_family()` 只在样例行带标签
+（`backend/app/services/metrics.py`）。
 
 ## 7. 后续可选
 
