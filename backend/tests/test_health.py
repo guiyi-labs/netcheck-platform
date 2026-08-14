@@ -8,7 +8,7 @@ def test_health_endpoint_reports_service_status(client: TestClient):
     assert response.json() == {
         "status": "ok",
         "service": "netcheck-backend",
-        "version": "0.1.0",
+        "version": "0.2.0",
     }
 
 

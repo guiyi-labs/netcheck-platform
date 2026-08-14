@@ -1,17 +1,17 @@
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.asset import Asset
 from app.models.inspection import InspectionResult, InspectionRun, InspectionTask
+from app.models.user import User
 from app.schemas.common import PageData, Response
 from app.schemas.inspection import CHECK_TYPES, ResultOut, RunOut, TaskCreate, TaskOut, TaskUpdate
-from app.services.alerts import evaluate_alerts
-from app.services.checkers import CHECKERS
-from app.services.diagnosis import generate_diagnoses, update_asset_statuses
+from app.services import audit
+from app.services.executor import TERMINAL_STATUSES, enqueue_task_run
 
 router = APIRouter(
     prefix="/api/tasks",
@@ -20,16 +20,16 @@ router = APIRouter(
 )
 
 
-def _next_run_at(task: InspectionTask) -> datetime | None:
-    if not task.enabled or not task.schedule_enabled or not task.schedule_interval_minutes:
-        return None
-    return datetime.now() + timedelta(minutes=task.schedule_interval_minutes)
-
-
 def _reload_task(task_id: int) -> None:
     from app.services.scheduler import scheduler_service
 
     scheduler_service.reload_task(task_id)
+
+
+def _next_run_at(task: InspectionTask) -> datetime | None:
+    if not task.enabled or not task.schedule_enabled or not task.schedule_interval_minutes:
+        return None
+    return datetime.now() + timedelta(minutes=task.schedule_interval_minutes)
 
 
 def task_out(task: InspectionTask) -> TaskOut:
@@ -79,38 +79,6 @@ def set_task_values(task: InspectionTask, payload: TaskCreate | TaskUpdate, db: 
     task.assets = assets
 
 
-def execute_task_run(task: InspectionTask, db: Session, trigger_type: str = "manual") -> InspectionRun:
-    if not task.enabled:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="巡检任务已停用，无法执行")
-    run = InspectionRun(task_id=task.id, status="running", trigger_type=trigger_type)
-    db.add(run)
-    db.commit()
-    db.refresh(run)
-    try:
-        for asset in task.assets:
-            for check_type in task.check_types.split(","):
-                try:
-                    for result in CHECKERS[check_type].check(asset):
-                        db.add(InspectionResult(run_id=run.id, asset_id=asset.id, check_type=check_type, target=result.target, status=result.status, response_time=result.response_time, message=result.message, error_message=result.error_message))
-                except Exception as exc:
-                    db.add(InspectionResult(run_id=run.id, asset_id=asset.id, check_type=check_type, status="failed", error_message=str(exc)))
-        run.status = "completed"
-    except Exception as exc:
-        run.status = "failed"
-        run.error_message = str(exc)
-    run.finished_at = datetime.now()
-    if trigger_type == "scheduled":
-        task.last_scheduled_run_at = run.finished_at
-        task.next_run_at = _next_run_at(task)
-    db.commit()
-    generate_diagnoses(run.id, db)
-    evaluate_alerts(run.id, db)
-    update_asset_statuses(run.id, db)
-    db.commit()
-    db.refresh(run)
-    return run
-
-
 @router.get("", response_model=Response[PageData[TaskOut]])
 def list_tasks(
     page: int = Query(1, ge=1),
@@ -124,10 +92,25 @@ def list_tasks(
 
 
 @router.post("", response_model=Response[TaskOut], status_code=status.HTTP_201_CREATED)
-def create_task(payload: TaskCreate, db: Session = Depends(get_db)) -> Response[TaskOut]:
+def create_task(
+    payload: TaskCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[TaskOut]:
     task = InspectionTask()
     set_task_values(task, payload, db)
     db.add(task)
+    db.flush()
+    audit.record(
+        db,
+        current_user.username,
+        "task.create",
+        target_type="task",
+        target_id=task.id,
+        detail=f"新建巡检任务 {task.name}",
+        request=request,
+    )
     db.commit()
     db.refresh(task)
     _reload_task(task.id)
@@ -140,38 +123,84 @@ def get_task_detail(task_id: int, db: Session = Depends(get_db)) -> Response[Tas
 
 
 @router.put("/{task_id}", response_model=Response[TaskOut])
-def update_task(task_id: int, payload: TaskUpdate, db: Session = Depends(get_db)) -> Response[TaskOut]:
+def update_task(
+    task_id: int,
+    payload: TaskUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[TaskOut]:
     task = get_task(task_id, db)
     set_task_values(task, payload, db)
+    audit.record(
+        db,
+        current_user.username,
+        "task.update",
+        target_type="task",
+        target_id=task_id,
+        detail=f"更新巡检任务 {task.name}",
+        request=request,
+    )
     db.commit()
     _reload_task(task_id)
     return Response(data=task_out(get_task(task_id, db)))
 
 
 @router.post("/{task_id}/enable", response_model=Response[TaskOut])
-def enable_task(task_id: int, db: Session = Depends(get_db)) -> Response[TaskOut]:
+def enable_task(
+    task_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[TaskOut]:
     task = get_task(task_id, db)
     task.enabled = True
     task.next_run_at = _next_run_at(task)
+    audit.record(db, current_user.username, "task.enable", target_type="task", target_id=task_id, detail=f"启用巡检任务 {task.name}", request=request)
     db.commit()
     _reload_task(task_id)
     return Response(data=task_out(get_task(task_id, db)))
 
 
 @router.post("/{task_id}/disable", response_model=Response[TaskOut])
-def disable_task(task_id: int, db: Session = Depends(get_db)) -> Response[TaskOut]:
+def disable_task(
+    task_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[TaskOut]:
     task = get_task(task_id, db)
     task.enabled = False
     task.next_run_at = None
+    audit.record(db, current_user.username, "task.disable", target_type="task", target_id=task_id, detail=f"停用巡检任务 {task.name}", request=request)
     db.commit()
     _reload_task(task_id)
     return Response(data=task_out(get_task(task_id, db)))
 
 
 @router.post("/{task_id}/run", response_model=Response[RunOut])
-def run_task(task_id: int, db: Session = Depends(get_db)) -> Response[RunOut]:
-    run = execute_task_run(get_task(task_id, db), db, trigger_type="manual")
-    return Response(data=RunOut.model_validate(run))
+def run_task(
+    task_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[RunOut]:
+    task = get_task(task_id, db)
+    if not task.enabled:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="巡检任务已停用，无法执行")
+    run_id = enqueue_task_run(task.id, trigger_type="manual")
+    audit.record(
+        db,
+        current_user.username,
+        "task.run",
+        target_type="run",
+        target_id=run_id,
+        detail=f"提交执行巡检任务 {task.name}",
+        request=request,
+    )
+    db.expire_all()
+    run = db.get(InspectionRun, run_id)
+    return Response(message="巡检任务已提交执行", data=RunOut.model_validate(run))
 
 
 @router.get("/{task_id}/runs", response_model=Response[PageData[RunOut]])
@@ -181,6 +210,14 @@ def list_runs(task_id: int, page: int = Query(1, ge=1), page_size: int = Query(2
     total = q.count()
     runs = q.order_by(InspectionRun.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     return Response(data=PageData(total=total, page=page, page_size=page_size, items=[RunOut.model_validate(run) for run in runs]))
+
+
+@router.get("/runs/{run_id}", response_model=Response[RunOut])
+def get_run(run_id: int, db: Session = Depends(get_db)) -> Response[RunOut]:
+    run = db.get(InspectionRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="运行记录不存在")
+    return Response(data=RunOut.model_validate(run))
 
 
 @router.get("/runs/{run_id}/results", response_model=Response[PageData[ResultOut]])

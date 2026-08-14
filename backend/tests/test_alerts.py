@@ -1,6 +1,9 @@
 from fastapi.testclient import TestClient
 
 from app.services.checkers import CheckResult
+from app.services.checkers import CHECKERS as CHECKERS_IMPL
+
+from helpers import wait_run
 
 
 def headers(token: str) -> dict[str, str]:
@@ -12,7 +15,7 @@ def set_checker(monkeypatch, status: str, response_time: float = 10, message: st
         def check(self, asset):
             return [CheckResult(status, asset.ip, response_time, message, error_message)]
 
-    monkeypatch.setitem(__import__("app.api.inspection", fromlist=["CHECKERS"]).CHECKERS, "ping", FakeChecker())
+    monkeypatch.setitem(CHECKERS_IMPL, "ping", FakeChecker())
 
 
 def create_task(client: TestClient, auth_token: str) -> int:
@@ -28,7 +31,9 @@ def create_task(client: TestClient, auth_token: str) -> int:
 def run_task(client: TestClient, auth_token: str, task_id: int) -> int:
     resp = client.post(f"/api/tasks/{task_id}/run", headers=headers(auth_token))
     assert resp.status_code == 200
-    return resp.json()["data"]["id"]
+    run = resp.json()["data"]
+    wait_run(client, headers(auth_token), run["id"])
+    return run["id"]
 
 
 def list_alerts(client: TestClient, auth_token: str, **params):

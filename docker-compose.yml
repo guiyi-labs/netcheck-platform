@@ -16,6 +16,21 @@ services:
     networks:
       - netcheck-lab
 
+  # 可选：MySQL 部署示例。默认使用 SQLite；启用 MySQL 时把 backend 的
+  # NETCHECK_DATABASE_URL 改为 mysql+pymysql://netcheck:netcheck@netcheck-mysql:3306/netcheck?charset=utf8mb4
+  # netcheck-mysql:
+  #   image: mysql:8.4
+  #   container_name: netcheck-mysql
+  #   environment:
+  #     MYSQL_ROOT_PASSWORD: netcheck
+  #     MYSQL_DATABASE: netcheck
+  #     MYSQL_USER: netcheck
+  #     MYSQL_PASSWORD: netcheck
+  #   volumes:
+  #     - mysql_data:/var/lib/mysql
+  #   networks:
+  #     - netcheck-lab
+
   netcheck-frontend:
     build:
       context: ./frontend
@@ -64,3 +79,4 @@ volumes:
   db_data:
   report_data:
   backend_logs:
+  # mysql_data:

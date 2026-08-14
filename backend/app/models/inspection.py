@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, String, Table, Text, func
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, String, Table, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -35,6 +35,7 @@ class InspectionTask(Base):
 
 class InspectionRun(Base):
     __tablename__ = "inspection_runs"
+    __table_args__ = (Index("ix_runs_task_status", "task_id", "status"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("inspection_tasks.id"), index=True)
@@ -51,6 +52,11 @@ class InspectionRun(Base):
 
 class InspectionResult(Base):
     __tablename__ = "inspection_results"
+    __table_args__ = (
+        Index("ix_results_run_status", "run_id", "status"),
+        Index("ix_results_asset_checked", "asset_id", "checked_at"),
+        Index("ix_results_checked_at", "checked_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     run_id: Mapped[int] = mapped_column(ForeignKey("inspection_runs.id"), index=True)

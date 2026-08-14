@@ -250,6 +250,7 @@ a {
 .status-offline { background: #fbe4e4; color: #b3261e; }
 .status-warning { background: #fff3d6; color: #8a6300; }
 .status-unknown { background: #eef1f5; color: #5a6678; }
+.status-pending { background: #eef1f5; color: #5a6678; }
 
 /* 分页工具栏 */
 .pagination-bar {

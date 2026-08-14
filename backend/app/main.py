@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from app.api.alerts import alerts_router, policy_router
 from app.api.assets import router as assets_router
+from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.dashboard import router as dashboard_router
 from app.api.diagnosis import router as diagnosis_router
@@ -16,6 +17,7 @@ from app.api.scheduler import router as scheduler_router
 from app.api.topology import router as topology_router
 from app.core.config import settings
 from app.core.database import init_db
+from app.services import executor
 from app.services.scheduler import scheduler_service
 
 
@@ -23,12 +25,14 @@ from app.services.scheduler import scheduler_service
 async def lifespan(app: FastAPI):
     # 启动时建表并写入演示数据（幂等）
     init_db()
+    executor.start()
     scheduler_service.start()
     scheduler_service.reload_all()
     try:
         yield
     finally:
         scheduler_service.shutdown()
+        executor.shutdown()
 
 
 app = FastAPI(
@@ -51,6 +55,7 @@ app.include_router(api_router)
 app.include_router(auth_router)
 app.include_router(alerts_router)
 app.include_router(policy_router)
+app.include_router(audit_router)
 app.include_router(inspection_router)
 app.include_router(diagnosis_router)
 app.include_router(dashboard_router)

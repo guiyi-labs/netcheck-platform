@@ -61,6 +61,11 @@ curl http://localhost:18082
 - 「资产发现」：在授权小范围内扫描主机和端口，并将发现结果导入资产台账。
 - 「逻辑拓扑」：按资产状态和类型展示网络逻辑拓扑。
 - 「报告管理」：生成、下载和删除 Excel 巡检报告。
+- 「审计日志」：查看登录、资产、任务、告警、报告等关键操作记录（阶段 A 新增）。
+
+阶段 A（工程加固）新增能力：token 过期与登录失败限流、修改密码、巡检异步执行（后台队列 +
+前端轮询）、关键表组合索引、MySQL 可选部署、`.env.example` 配置外置、审计日志、备份脚本
+（`scripts/backup.sh` / `scripts/backup.ps1`）。
 
 接口示例：
 
@@ -78,10 +83,11 @@ curl.exe -s http://localhost:8000/api/assets -H "Authorization: Bearer $token"
 当前业务接口统一响应包络 `{code, message, data}`，需 `Authorization: Bearer {token}`：
 
 - `POST /api/auth/login`、`POST /api/auth/logout`、`GET /api/auth/me`
+- `POST /api/auth/change-password`（验证原密码、强制密码长度、改密后旧 token 失效）
 - `GET/POST /api/assets`、`GET/PUT/DELETE /api/assets/{id}`、`GET /api/assets/meta/types`
 - `GET/POST /api/tasks`、`GET/PUT /api/tasks/{id}`
-- `POST /api/tasks/{id}/enable`、`POST /api/tasks/{id}/disable`、`POST /api/tasks/{id}/run`
-- `GET /api/tasks/{id}/runs`、`GET /api/tasks/runs/{run_id}/results`
+- `POST /api/tasks/{id}/enable`、`POST /api/tasks/{id}/disable`、`POST /api/tasks/{id}/run`（异步提交）
+- `GET /api/tasks/{id}/runs`、`GET /api/tasks/runs/{run_id}`（轮询状态）、`GET /api/tasks/runs/{run_id}/results`
 - `GET /api/diagnosis`、`GET /api/diagnosis/{id}`、`GET /api/diagnosis/runs/{run_id}`
 - `POST /api/diagnosis/runs/{run_id}/generate`
 - `GET /api/dashboard/summary`、`GET /api/dashboard/asset-status`
@@ -95,6 +101,7 @@ curl.exe -s http://localhost:8000/api/assets -H "Authorization: Bearer $token"
 - `POST /api/discovery/scans`、`GET /api/discovery/scans`、`GET /api/discovery/scans/{id}/results`
 - `POST /api/discovery/results/{id}/import`
 - `GET /api/topology`
+- `GET /api/audit-logs`（审计日志查询，支持用户/动作/对象/日期筛选）
 
 巡检演示建议选择资产 `demo-web-ok`、`demo-web-error`、`demo-web-slow`，检测类型选择 Ping、端口、HTTP、DNS，可复现 HTTP 200、HTTP 500、慢响应警告和 Docker 服务名 DNS 解析，并自动生成故障诊断、告警与资产状态回写结果。随后可在「仪表盘」查看统计图表，在「资产发现」扫描授权地址，在「逻辑拓扑」查看资产拓扑，在「报告管理」按运行 ID 生成并下载 Excel 报告。
 

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -10,6 +10,7 @@ from app.models.inspection import InspectionRun
 from app.models.user import User
 from app.schemas.alert import AlertOut, AlertPolicyOut, AlertPolicyUpdate, AlertRecoverRequest, AlertSummary
 from app.schemas.common import PageData, Response
+from app.services import audit
 from app.services.alerts import evaluate_alerts, get_default_policy
 
 alerts_router = APIRouter(
@@ -89,6 +90,7 @@ def get_alert_detail(alert_id: int, db: Session = Depends(get_db)) -> Response[A
 @alerts_router.post("/{alert_id}/confirm", response_model=Response[AlertOut])
 def confirm_alert(
     alert_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Response[AlertOut]:
@@ -98,18 +100,34 @@ def confirm_alert(
     alert.alert_status = "confirmed"
     alert.confirmed_by = current_user.username
     alert.confirmed_at = datetime.now()
+    audit.record(db, current_user.username, "alert.confirm", target_type="alert", target_id=alert_id, detail=f"确认告警 {alert.alert_title}", request=request)
     db.commit()
     db.refresh(alert)
     return Response(message="告警已确认", data=AlertOut.model_validate(alert))
 
 
 @alerts_router.post("/{alert_id}/recover", response_model=Response[AlertOut])
-def recover_alert(alert_id: int, payload: AlertRecoverRequest | None = None, db: Session = Depends(get_db)) -> Response[AlertOut]:
+def recover_alert(
+    alert_id: int,
+    payload: AlertRecoverRequest | None = None,
+    request: Request = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[AlertOut]:
     alert = get_alert(alert_id, db)
     alert.alert_status = "recovered"
     alert.recovered_at = datetime.now()
     alert.recovery_reason = payload.recovery_reason if payload and payload.recovery_reason else "手动恢复"
     alert.consecutive_successes = 0
+    audit.record(
+        db,
+        current_user.username,
+        "alert.recover",
+        target_type="alert",
+        target_id=alert_id,
+        detail=f"恢复告警 {alert.alert_title}",
+        request=request,
+    )
     db.commit()
     db.refresh(alert)
     return Response(message="告警已恢复", data=AlertOut.model_validate(alert))
@@ -124,10 +142,16 @@ def get_policy(db: Session = Depends(get_db)) -> Response[AlertPolicyOut]:
 
 
 @policy_router.put("", response_model=Response[AlertPolicyOut])
-def update_policy(payload: AlertPolicyUpdate, db: Session = Depends(get_db)) -> Response[AlertPolicyOut]:
+def update_policy(
+    payload: AlertPolicyUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[AlertPolicyOut]:
     policy = get_default_policy(db)
     for field in payload.model_fields_set:
         setattr(policy, field, getattr(payload, field))
+    audit.record(db, current_user.username, "alert_policy.update", target_type="alert_policy", target_id=policy.id, detail="更新告警策略", request=request)
     db.commit()
     db.refresh(policy)
     return Response(message="告警策略已更新", data=AlertPolicyOut.model_validate(policy))

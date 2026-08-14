@@ -1,6 +1,25 @@
+import time
+
 from fastapi.testclient import TestClient
 
 from app.services.checkers import CheckResult
+from app.services.checkers import CHECKERS as CHECKERS_IMPL
+
+from helpers import wait_run
+
+
+def set_checker(monkeypatch, check_type: str, checker) -> None:
+    """替换检测器：worker 线程读取 app.services.checkers.CHECKERS 的同一字典对象。"""
+    monkeypatch.setitem(CHECKERS_IMPL, check_type, checker)
+
+
+def _poll_until(predicate, timeout: float = 15.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return
+        time.sleep(0.05)
+    raise AssertionError("轮询条件未在超时时间内满足")
 
 
 def test_tasks_require_token(client: TestClient):
@@ -46,11 +65,14 @@ def test_create_update_toggle_and_run_history(client: TestClient, auth_token: st
         def check(self, asset):
             return [CheckResult("success", asset.ip, 12.5, "正常")]
 
-    monkeypatch.setitem(__import__("app.api.inspection", fromlist=["CHECKERS"]).CHECKERS, "ping", FakeChecker())
+    set_checker(monkeypatch, "ping", FakeChecker())
     run = client.post(f"/api/tasks/{task_id}/run", headers=headers)
     assert run.status_code == 200
-    run_id = run.json()["data"]["id"]
-    assert run.json()["data"]["status"] == "completed"
+    run_data = run.json()["data"]
+    assert run_data["status"] == "pending"
+    run_id = run_data["id"]
+    finished = wait_run(client, headers, run_id)
+    assert finished["status"] == "completed"
 
     history = client.get(f"/api/tasks/{task_id}/runs", headers=headers)
     assert history.status_code == 200
@@ -72,8 +94,9 @@ def test_checker_error_is_stored_and_does_not_block_run(client: TestClient, auth
         def check(self, asset):
             raise RuntimeError("network unavailable")
 
-    monkeypatch.setitem(__import__("app.api.inspection", fromlist=["CHECKERS"]).CHECKERS, "ping", FailingChecker())
+    set_checker(monkeypatch, "ping", FailingChecker())
     run = client.post(f"/api/tasks/{task['id']}/run", headers=headers).json()["data"]
+    wait_run(client, headers, run["id"])
     results = client.get(f"/api/tasks/runs/{run['id']}/results", headers=headers).json()["data"]
     assert results["total"] == 2
     assert all(item["error_message"] == "network unavailable" for item in results["items"])
@@ -81,6 +104,11 @@ def test_checker_error_is_stored_and_does_not_block_run(client: TestClient, auth
 
 def test_diagnosis_require_token(client: TestClient):
     assert client.get("/api/diagnosis").status_code == 401
+
+
+def test_get_run_not_found(client: TestClient, auth_token: str):
+    headers = {"Authorization": f"Bearer {auth_token}"}
+    assert client.get("/api/tasks/runs/999999", headers=headers).status_code == 404
 
 
 def test_run_generates_http500_and_slow_diagnosis_and_updates_asset_status(client: TestClient, auth_token: str, monkeypatch):
@@ -97,8 +125,9 @@ def test_run_generates_http500_and_slow_diagnosis_and_updates_asset_status(clien
                 return [CheckResult("failed", f"http://{asset.ip}", 100, error_message="HTTP 500")]
             return [CheckResult("warning", f"http://{asset.ip}", 3000, "HTTP 200，响应缓慢")]
 
-    monkeypatch.setitem(__import__("app.api.inspection", fromlist=["CHECKERS"]).CHECKERS, "http", HttpChecker())
+    set_checker(monkeypatch, "http", HttpChecker())
     run = client.post(f"/api/tasks/{task['id']}/run", headers=headers).json()["data"]
+    wait_run(client, headers, run["id"])
 
     diagnoses = client.get(f"/api/diagnosis/runs/{run['id']}", headers=headers)
     assert diagnoses.status_code == 200
@@ -122,8 +151,9 @@ def test_ping_failed_updates_asset_offline(client: TestClient, auth_token: str, 
         def check(self, asset):
             return [CheckResult("failed", asset.ip, 10, error_message="Ping 不可达")]
 
-    monkeypatch.setitem(__import__("app.api.inspection", fromlist=["CHECKERS"]).CHECKERS, "ping", PingChecker())
-    client.post(f"/api/tasks/{task['id']}/run", headers=headers)
+    set_checker(monkeypatch, "ping", PingChecker())
+    run = client.post(f"/api/tasks/{task['id']}/run", headers=headers).json()["data"]
+    wait_run(client, headers, run["id"])
     assert client.get("/api/assets/1", headers=headers).json()["data"]["status"] == "offline"
 
 
@@ -141,8 +171,9 @@ def test_diagnosis_list_filters_detail_404_and_regenerate_idempotent(client: Tes
                 return [CheckResult("failed", f"http://{asset.ip}", 80, error_message="HTTP 404")]
             return [CheckResult("failed", f"http://{asset.ip}", 90, error_message="HTTP 500")]
 
-    monkeypatch.setitem(__import__("app.api.inspection", fromlist=["CHECKERS"]).CHECKERS, "http", HttpChecker())
+    set_checker(monkeypatch, "http", HttpChecker())
     run = client.post(f"/api/tasks/{task['id']}/run", headers=headers).json()["data"]
+    wait_run(client, headers, run["id"])
 
     filtered = client.get(
         "/api/diagnosis",
@@ -178,9 +209,10 @@ def test_dns_task_generates_diagnosis(client: TestClient, auth_token: str, monke
                 return [CheckResult("failed", asset.hostname or asset.ip, 20, error_message="NXDOMAIN")]
             return [CheckResult("warning", asset.hostname or asset.ip, 3000, "DNS 解析成功，响应缓慢")]
 
-    monkeypatch.setitem(__import__("app.api.inspection", fromlist=["CHECKERS"]).CHECKERS, "dns", DnsChecker())
+    set_checker(monkeypatch, "dns", DnsChecker())
     run = client.post(f"/api/tasks/{task['id']}/run", headers=headers).json()["data"]
     assert run["trigger_type"] == "manual"
+    wait_run(client, headers, run["id"])
 
     diagnoses = client.get(f"/api/diagnosis/runs/{run['id']}", headers=headers).json()["data"]["items"]
     assert {item["fault_type"] for item in diagnoses} == {"DNS配置或解析服务异常", "DNS解析响应较慢"}
@@ -194,7 +226,7 @@ def test_scheduler_fields_status_and_scheduled_trigger(client: TestClient, auth_
         def check(self, asset):
             return [CheckResult("success", asset.ip, 5, "正常")]
 
-    monkeypatch.setitem(__import__("app.api.inspection", fromlist=["CHECKERS"]).CHECKERS, "ping", PingChecker())
+    set_checker(monkeypatch, "ping", PingChecker())
     task = client.post(
         "/api/tasks",
         headers=headers,
@@ -216,15 +248,18 @@ def test_scheduler_fields_status_and_scheduled_trigger(client: TestClient, auth_
     assert status_resp.status_code == 200
     assert status_resp.json()["data"]["running"] is True
 
-    from app.api.inspection import execute_task_run, get_task
-    from app.core.database import SessionLocal
+    # 模拟定时触发：调度器入队一条 scheduled 运行，异步执行
+    from app.services.scheduler import scheduler_service
 
-    db = SessionLocal()
-    try:
-        run = execute_task_run(get_task(data["id"], db), db, trigger_type="scheduled")
-        assert run.trigger_type == "scheduled"
-    finally:
-        db.close()
+    scheduler_service.scheduled_run_task(data["id"])
+    _poll_until(
+        lambda: client.get(f"/api/tasks/{data['id']}/runs", headers=headers).json()["data"]["total"] == 1
+    )
 
-    history = client.get(f"/api/tasks/{data['id']}/runs", headers=headers).json()["data"]["items"]
-    assert history[0]["trigger_type"] == "scheduled"
+    def latest_run():
+        return client.get(f"/api/tasks/{data['id']}/runs", headers=headers).json()["data"]["items"][0]
+
+    _poll_until(lambda: latest_run()["status"] in ("completed", "failed", "cancelled"))
+    history = latest_run()
+    assert history["trigger_type"] == "scheduled"
+    assert history["status"] == "completed"

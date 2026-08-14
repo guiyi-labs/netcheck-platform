@@ -4,6 +4,9 @@ from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
 from app.services.checkers import CheckResult
+from app.services.checkers import CHECKERS as CHECKERS_IMPL
+
+from helpers import wait_run
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -24,8 +27,9 @@ def _create_run_with_abnormal(client: TestClient, auth_token: str, monkeypatch):
                 return [CheckResult("failed", f"http://{asset.ip}", 120, error_message="HTTP 500")]
             return [CheckResult("warning", f"http://{asset.ip}", 3000, "HTTP 200，响应缓慢")]
 
-    monkeypatch.setitem(__import__("app.api.inspection", fromlist=["CHECKERS"]).CHECKERS, "http", HttpChecker())
+    monkeypatch.setitem(CHECKERS_IMPL, "http", HttpChecker())
     run = client.post(f"/api/tasks/{task['id']}/run", headers=headers).json()["data"]
+    wait_run(client, headers, run["id"])
     return headers, task, run
 
 

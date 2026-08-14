@@ -37,7 +37,7 @@ class SchedulerService:
         db = SessionLocal()
         try:
             task = db.get(InspectionTask, task_id)
-            if task is None or not task.enabled or not task.schedule_enabled or not task.schedule_interval_minutes:
+            if task is None or not task.enabled or not task.schedule_enabled or not self._schedule_interval(task):
                 return
             self.scheduler.add_job(
                 self.scheduled_run_task,
@@ -64,7 +64,7 @@ class SchedulerService:
         }
 
     def scheduled_run_task(self, task_id: int) -> None:
-        from app.api.inspection import execute_task_run
+        from app.services.executor import enqueue_task_run
 
         db = SessionLocal()
         try:
@@ -76,9 +76,13 @@ class SchedulerService:
             )
             if task is None or not task.enabled:
                 return
-            execute_task_run(task, db, trigger_type="scheduled")
+            enqueue_task_run(task_id, trigger_type="scheduled")
         finally:
             db.close()
+
+    @staticmethod
+    def _schedule_interval(task: InspectionTask) -> int | None:
+        return task.schedule_interval_minutes
 
     @staticmethod
     def _job_id(task_id: int) -> str:

@@ -1,12 +1,14 @@
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.discovery import DiscoveryResult, DiscoveryScan
+from app.models.user import User
 from app.schemas.asset import AssetOut
 from app.schemas.common import PageData, Response
 from app.schemas.discovery import DiscoveryResultOut, DiscoveryScanCreate, DiscoveryScanOut
+from app.services import audit
 from app.services.discovery import import_discovery_result, run_discovery_scan
 
 router = APIRouter(
@@ -17,8 +19,25 @@ router = APIRouter(
 
 
 @router.post("/scans", response_model=Response[DiscoveryScanOut], status_code=status.HTTP_201_CREATED)
-def create_scan(payload: DiscoveryScanCreate, db: Session = Depends(get_db)) -> Response[DiscoveryScanOut]:
-    return Response(data=DiscoveryScanOut.model_validate(run_discovery_scan(payload, db)))
+def create_scan(
+    payload: DiscoveryScanCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[DiscoveryScanOut]:
+    scan = run_discovery_scan(payload, db)
+    audit.record(
+        db,
+        current_user.username,
+        "discovery.scan",
+        target_type="discovery_scan",
+        target_id=scan.id,
+        detail=f"发起资产发现扫描 {payload.target_range}",
+        request=request,
+    )
+    db.commit()
+    db.refresh(scan)
+    return Response(data=DiscoveryScanOut.model_validate(scan))
 
 
 @router.get("/scans", response_model=Response[PageData[DiscoveryScanOut]])
@@ -38,5 +57,22 @@ def list_scan_results(scan_id: int, page: int = Query(1, ge=1), page_size: int =
 
 
 @router.post("/results/{result_id}/import", response_model=Response[AssetOut])
-def import_result(result_id: int, db: Session = Depends(get_db)) -> Response[AssetOut]:
-    return Response(data=AssetOut.model_validate(import_discovery_result(result_id, db)))
+def import_result(
+    result_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[AssetOut]:
+    asset = import_discovery_result(result_id, db)
+    audit.record(
+        db,
+        current_user.username,
+        "discovery.import",
+        target_type="asset",
+        target_id=asset.id,
+        detail=f"从发现结果导入资产 {asset.name} ({asset.ip})",
+        request=request,
+    )
+    db.commit()
+    db.refresh(asset)
+    return Response(data=AssetOut.model_validate(asset))

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -8,8 +8,10 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.inspection import InspectionRun
 from app.models.report import Report
+from app.models.user import User
 from app.schemas.common import PageData, Response
 from app.schemas.report import ReportGenerateIn, ReportOut
+from app.services import audit
 from app.services.report import generate_daily_report, generate_run_report
 
 router = APIRouter(
@@ -20,7 +22,12 @@ router = APIRouter(
 
 
 @router.post("/generate", response_model=Response[ReportOut], status_code=status.HTTP_201_CREATED)
-def generate_report(payload: ReportGenerateIn, db: Session = Depends(get_db)) -> Response[ReportOut]:
+def generate_report(
+    payload: ReportGenerateIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[ReportOut]:
     if payload.report_type == "run":
         if payload.run_id is None:
             raise HTTPException(status_code=422, detail="run 类型报告必须提供 run_id")
@@ -33,6 +40,8 @@ def generate_report(payload: ReportGenerateIn, db: Session = Depends(get_db)) ->
             report = generate_daily_report(db, payload.report_date)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+    audit.record(db, current_user.username, "report.generate", target_type="report", target_id=report.id, detail=f"生成报告 {report.report_name}", request=request)
+    db.commit()
     return Response(message="报告已生成", data=ReportOut.model_validate(report))
 
 
@@ -63,7 +72,12 @@ def download_report(report_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/{report_id}", response_model=Response[ReportOut])
-def delete_report(report_id: int, db: Session = Depends(get_db)) -> Response[ReportOut]:
+def delete_report(
+    report_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Response[ReportOut]:
     report = db.get(Report, report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="报告不存在")
@@ -71,6 +85,7 @@ def delete_report(report_id: int, db: Session = Depends(get_db)) -> Response[Rep
     path = Path(report.file_path)
     if path.exists():
         path.unlink()
+    audit.record(db, current_user.username, "report.delete", target_type="report", target_id=report_id, detail=f"删除报告 {report.report_name}", request=request)
     db.delete(report)
     db.commit()
     return Response(message="报告已删除", data=data)
