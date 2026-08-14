@@ -87,6 +87,7 @@
               '<li class="nav-item"><a class="nav-link' + activeClass('tasks.html') + activeClass('task-run.html') + '" href="tasks.html"><i class="bi bi-clipboard2-pulse me-1"></i>巡检任务</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('diag.html') + '" href="diag.html"><i class="bi bi-signpost-split me-1"></i>网络诊断</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('results.html') + '" href="results.html"><i class="bi bi-clipboard-data me-1"></i>巡检结果</a></li>' +
+              '<li class="nav-item"><a class="nav-link' + activeClass('trends.html') + '" href="trends.html"><i class="bi bi-graph-up me-1"></i>趋势分析</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('diagnosis.html') + '" href="diagnosis.html"><i class="bi bi-tools me-1"></i>故障诊断</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('alerts.html') + '" href="alerts.html"><i class="bi bi-bell me-1"></i>告警中心</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('reports.html') + '" href="reports.html"><i class="bi bi-file-earmark-spreadsheet me-1"></i>报告管理</a></li>' +

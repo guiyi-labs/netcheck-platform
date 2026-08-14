@@ -23,6 +23,7 @@ from app.services.alerts import evaluate_alerts
 from app.services.checkers import CHECKERS
 from app.services.diagnosis import generate_diagnoses, update_asset_statuses
 from app.services.execute_lock import acquire_lock, release_lock
+from app.services.realtime import hub
 from app.services.schedule import next_run_at
 
 logger = logging.getLogger("netcheck.executor")
@@ -93,8 +94,25 @@ def _mark_queued_run_failed(run_id: int) -> None:
             run.error_message = "巡检执行队列已满，请稍后重试"
             run.finished_at = datetime.now()
             db.commit()
+            _publish_run(run, "failed")
     finally:
         db.close()
+
+
+def _publish_run(run, status: str) -> None:
+    """向 WebSocket 推送一次运行状态变更（线程安全，可后台线程调用）。"""
+    try:
+        hub.publish(
+            {
+                "type": "run.updated",
+                "run_id": run.id,
+                "task_id": run.task_id,
+                "status": status,
+                "trigger_type": getattr(run, "trigger_type", None),
+            }
+        )
+    except Exception:
+        logger.debug("运行 %s 实况推送失败", run.id)
 
 
 def submit_run(run_id: int) -> None:
@@ -229,16 +247,19 @@ def process_run(run_id: int) -> None:
             run.error_message = "任务正在被其他实例执行，已跳过本次运行（分布式锁）"
             run.finished_at = datetime.now()
             db.commit()
+            _publish_run(run, "failed")
             return
         lock_held = True
         run.status = "running"
         db.commit()
+        _publish_run(run, "running")
 
         outcome = _execute_checks(run, task, db)
         if outcome == "cancelled":
             run.status = "cancelled"
             run.finished_at = datetime.now()
             db.commit()
+            _publish_run(run, "cancelled")
             return
         if outcome == "failed":
             # 全部检测失败：仍执行诊断/告警以便观察，但运行整体标记为 failed 可重试
@@ -249,6 +270,7 @@ def process_run(run_id: int) -> None:
             run.error_message = "全部检查项均失败"
             run.finished_at = datetime.now()
             db.commit()
+            _publish_run(run, "failed")
             return
 
         # 先完成诊断、告警、资产状态回写，再标记运行完成；否则轮询方会在
@@ -263,6 +285,7 @@ def process_run(run_id: int) -> None:
             task.last_scheduled_run_at = run.finished_at
             task.next_run_at = _next_run_at(task)
         db.commit()
+        _publish_run(run, "completed")
 
         # 告警通知分发放到运行完成之后（B 阶段完善；未启用时为空操作）
         try:

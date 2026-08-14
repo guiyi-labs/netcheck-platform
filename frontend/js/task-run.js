@@ -20,12 +20,29 @@
   function renderResults() { var start = (state.resultPage - 1) * state.resultPageSize, items = state.filteredResults.slice(start, start + state.resultPageSize), tbody = document.getElementById('result-tbody'); tbody.innerHTML = items.length ? items.map(function (item, index) { var text = item.error_message || item.message || '-'; return '<tr><td>' + escapeHtml(state.assets[String(item.asset_id)] || ('资产 #' + item.asset_id)) + '</td><td>' + escapeHtml(typeLabel(item.check_type)) + '</td><td><span class="status-badge ' + resultClass(item.status) + '">' + escapeHtml(resultLabel(item.status)) + '</span></td><td>' + (item.response_time == null ? '-' : escapeHtml(item.response_time) + ' ms') + '</td><td class="text-truncate-cell" title="' + escapeHtml(text) + '">' + escapeHtml(text) + '</td><td>' + formatTime(item.checked_at) + '</td><td class="text-end"><button class="btn btn-sm btn-outline-primary js-detail" data-index="' + (start + index) + '">详情</button></td></tr>'; }).join('') : '<tr><td colspan="7" class="empty-state"><i class="bi bi-inbox"></i><div>暂无符合条件的结果</div></td></tr>'; var pages = Math.max(1, Math.ceil(state.filteredResults.length / state.resultPageSize)); document.getElementById('result-page-info').textContent = '共 ' + state.filteredResults.length + ' 条 | 第 ' + state.resultPage + '/' + pages + ' 页'; document.getElementById('result-prev').disabled = state.resultPage <= 1; document.getElementById('result-next').disabled = state.filteredResults.length === 0 || state.resultPage >= pages; }
   function showDetail(item) { var rows = [['结果 ID', item.id], ['运行 ID', item.run_id], ['资产', state.assets[String(item.asset_id)] || ('资产 #' + item.asset_id)], ['检测类型', typeLabel(item.check_type)], ['目标', item.target], ['状态', resultLabel(item.status)], ['响应耗时', item.response_time == null ? null : item.response_time + ' ms'], ['消息', item.message], ['错误信息', item.error_message], ['检测时间', formatTime(item.checked_at)]]; document.getElementById('detail-content').innerHTML = rows.map(function (row) { return '<dt class="col-sm-3">' + escapeHtml(row[0]) + '</dt><dd class="col-sm-9 text-break">' + escapeHtml(row[1] == null || row[1] === '' ? '-' : row[1]) + '</dd>'; }).join(''); detailModal.show(); }
   document.getElementById('runs-tbody').addEventListener('click', async function (event) { var button = event.target.closest('.js-view-run, .js-cancel-run, .js-retry-run'); if (!button) return; var runId = button.getAttribute('data-id'); if (button.classList.contains('js-cancel-run')) { if (!window.confirm('确定取消运行 #' + runId + ' 吗？')) return; try { await api.post('/api/tasks/runs/' + encodeURIComponent(runId) + '/cancel'); loadRuns(); } catch (err) { showError('取消失败：' + err.message); } return; } if (button.classList.contains('js-retry-run')) { try { var resp = await api.post('/api/tasks/runs/' + encodeURIComponent(runId) + '/retry'); selectedRunId = String(resp.id); history.replaceState(null, '', 'task-run.html?task_id=' + encodeURIComponent(taskId) + '&run_id=' + encodeURIComponent(selectedRunId)); loadRuns(); } catch (err) { showError('重试失败：' + err.message); } return; } selectedRunId = runId; history.replaceState(null, '', 'task-run.html?task_id=' + encodeURIComponent(taskId) + '&run_id=' + encodeURIComponent(selectedRunId)); loadRuns(); }); document.getElementById('result-tbody').addEventListener('click', function (event) { var button = event.target.closest('.js-detail'); if (button) showDetail(state.filteredResults[Number(button.getAttribute('data-index'))]); }); document.getElementById('result-filter').addEventListener('submit', function (event) { event.preventDefault(); state.resultPage = 1; filterResults(); }); document.getElementById('result-reset').addEventListener('click', function () { document.getElementById('rf-type').value = ''; document.getElementById('rf-status').value = ''; state.resultPage = 1; filterResults(); }); document.getElementById('result-prev').addEventListener('click', function () { if (state.resultPage > 1) { state.resultPage--; renderResults(); } }); document.getElementById('result-next').addEventListener('click', function () { if (state.resultPage < Math.ceil(state.filteredResults.length / state.resultPageSize)) { state.resultPage++; renderResults(); } }); document.getElementById('runs-prev').addEventListener('click', function () { if (state.page > 1) { state.page--; loadRuns(); } }); document.getElementById('runs-next').addEventListener('click', function () { if (state.page < Math.ceil(state.total / state.pageSize)) { state.page++; loadRuns(); } }); document.getElementById('btn-refresh').addEventListener('click', function () { hideError(); loadTask(); loadAssets(); loadRuns(); });
-  // 巡检执行为异步，若最近一次运行仍在处理中则自动轮询刷新，避免用户手动刷新
-  var pollTimer = setInterval(function () {
+  // 巡检执行为异步：优先走 WebSocket 实况刷新；未连接时回退 2s 轮询兜底
+  Realtime.connect();
+  Realtime.on('run.updated', function (msg) {
+    if (!taskId || String(msg.task_id) !== String(taskId)) return;
     var visible = state.items || [];
-    var active = visible.filter(function (r) { return r.status === 'pending' || r.status === 'running'; });
-    if (!active.length) { clearInterval(pollTimer); return; }
-    loadRuns();
-  }, 2000);
+    var anyActive = visible.some(function (r) { return String(r.id) === String(msg.run_id) && (r.status === 'pending' || r.status === 'running'); });
+    var isNew = !visible.some(function (r) { return String(r.id) === String(msg.run_id); });
+    // 涉及当前任务且有运行处于活动态（新增/状态变化）→ 刷新列表与结果
+    if (isNew || anyActive || msg.status === 'completed' || msg.status === 'failed' || msg.status === 'cancelled') {
+      loadRuns();
+    }
+  });
+  var pollTimer = null;
+  function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(function () {
+      if (Realtime.isConnected()) return; // WS 在线时无需轮询
+      var visible = state.items || [];
+      var active = visible.filter(function (r) { return r.status === 'pending' || r.status === 'running'; });
+      if (!active.length) { clearInterval(pollTimer); pollTimer = null; return; }
+      loadRuns();
+    }, 2000);
+  }
   loadAssets().then(function () { loadTask().then(function (loaded) { if (loaded) loadRuns(); }); });
+  startPolling();
 })();

@@ -72,12 +72,52 @@ def _to_payload(alerts: list[Alert]) -> dict:
     }
 
 
+# ---- Webhook 平台适配器（generic / dingtalk / wecom / feishu）----
+
+WEBHOOK_SCHEMES = {"generic", "dingtalk", "wecom", "feishu"}
+
+
+def _alert_lines(alerts: list[Alert]) -> list[str]:
+    lines = [f"巡检诊断平台告警通知（{len(alerts)} 条）", "=" * 40]
+    for alert in alerts:
+        lines.append(f"- [{alert.alert_level}] {alert.alert_title}")
+        lines.append(f"  资产: #{alert.asset_id}  检测: {alert.check_type}  故障: {alert.fault_type}")
+        if alert.evidence:
+            lines.append(f"  依据: {alert.evidence}")
+        if alert.suggestion:
+            lines.append(f"  建议: {alert.suggestion}")
+        lines.append("")
+    return lines
+
+
+def _build_platform_payload(alerts: list[Alert]) -> dict:
+    """按 webhook_scheme 构造对应平台的机器人消息体。"""
+    scheme = (settings.webhook_scheme or "generic").lower()
+    content = "\n".join(_alert_lines(alerts))
+    if scheme == "dingtalk":
+        return {
+            "msgtype": "markdown",
+            "markdown": {"title": f"[netcheck] {len(alerts)} 条告警", "text": content},
+        }
+    if scheme == "wecom":
+        return {
+            "msgtype": "markdown",
+            "markdown": {"content": content},
+        }
+    if scheme == "feishu":
+        return {
+            "msg_type": "text",
+            "content": {"text": content},
+        }
+    return _to_payload(alerts)
+
+
 def _send_webhook(alerts: list[Alert]) -> int:
     if not settings.webhook_url:
         return 0
     resp = httpx.post(
         settings.webhook_url,
-        json=_to_payload(alerts),
+        json=_build_platform_payload(alerts),
         headers=_webhook_headers(),
         timeout=10.0,
     )

@@ -13,9 +13,11 @@ from app.api.discovery import router as discovery_router
 from app.api.inspection import router as inspection_router
 from app.api.metrics import router as metrics_router
 from app.api.reports import router as reports_router
+from app.api.realtime import router as realtime_router
 from app.api.results import router as results_router
 from app.api.routes import router as api_router
 from app.api.scheduler import router as scheduler_router
+from app.api.stats import router as stats_router
 from app.api.topology import router as topology_router
 from app.api.users import router as users_router
 from app.core.config import settings
@@ -71,3 +73,5 @@ app.include_router(topology_router)
 app.include_router(users_router)
 app.include_router(diagnostics_router)
 app.include_router(metrics_router)
+app.include_router(stats_router)
+app.include_router(realtime_router)

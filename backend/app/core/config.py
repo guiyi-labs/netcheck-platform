@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     smtp_use_ssl: bool = True
     webhook_url: str = ""
     webhook_headers: str = ""
+    # Webhook 平台适配：generic（通用 JSON）/ dingtalk（钉钉）/ wecom（企业微信）/ feishu（飞书）
+    webhook_scheme: str = "generic"
 
     # ---- AI 诊断增强（可选）----
     ai_diagnosis_enabled: bool = False

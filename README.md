@@ -81,6 +81,11 @@ Nmap 增强发现与 SNMP 基础采集（可选依赖，自动回落）、局域
 Prometheus 指标导出（`GET /metrics`，零依赖 text format）、K8s 巡检脚本 `scripts/k8s-inspect.sh`、
 分布式执行锁（多实例防重复）、有界执行队列（`run_queue_maxsize` 防堆积）。
 
+演示出彩增强（docs/demo-improvements/archive.md）：WebSocket 实时推送（`/ws/runs`，运行状态
+秒级刷新，`js/ws.js` 自动重连）、ECharts 趋势页（`trends.html`：RTT 曲线 / 可用率 SLA / 运行耗时，
+后端 `GET /api/stats/*`）、Prometheus + Grafana 一键大屏（`scripts/demo-stack.sh up`，仪表盘自动
+供给）、告警渠道适配器（钉钉 / 企微 / 飞书，`NETCHECK_WEBHOOK_SCHEME`）。
+
 接口示例：
 
 ```powershell
