@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.models.asset import Asset
 from app.models.discovery import DiscoveryResult, DiscoveryScan
 from app.schemas.discovery import DiscoveryScanCreate
+from app.services.nmap_discovery import nmap_ping_sweep, nmap_port_scan
 
 SCAN_MODES = {"ping", "port", "ping_port"}
 MAX_TARGETS = 256
@@ -84,10 +85,31 @@ def run_discovery_scan(payload: DiscoveryScanCreate, db: Session) -> DiscoverySc
     db.refresh(scan)
 
     discovered_count = 0
+    # Nmap 增强：安装 nmap 时批量主机发现更快；返回 None 表示 nmap 不可用/失败，回退到单点探测
+    alive_by_nmap: set[str] | None = None
+    if payload.scan_mode in {"ping", "ping_port"}:
+        try:
+            alive_by_nmap = nmap_ping_sweep(targets)
+        except Exception:
+            alive_by_nmap = None
     try:
         for ip in targets:
-            alive = ping_probe(ip) if payload.scan_mode in {"ping", "ping_port"} else False
-            open_ports = port_probe(ip, ports) if payload.scan_mode in {"port", "ping_port"} else []
+            if payload.scan_mode in {"ping", "ping_port"}:
+                if alive_by_nmap is not None:
+                    alive = ip in alive_by_nmap
+                else:
+                    alive = ping_probe(ip)
+            else:
+                alive = False
+            if payload.scan_mode in {"port", "ping_port"}:
+                nmap_ports = None
+                try:
+                    nmap_ports = nmap_port_scan(ip, ports)
+                except Exception:
+                    nmap_ports = None
+                open_ports = nmap_ports if nmap_ports is not None else port_probe(ip, ports)
+            else:
+                open_ports = []
             discovered = alive or bool(open_ports)
             if not discovered:
                 continue

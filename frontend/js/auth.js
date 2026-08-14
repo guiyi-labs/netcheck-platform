@@ -85,6 +85,7 @@
               '<li class="nav-item"><a class="nav-link' + activeClass('discovery.html') + '" href="discovery.html"><i class="bi bi-radar me-1"></i>资产发现</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('topology.html') + '" href="topology.html"><i class="bi bi-diagram-3 me-1"></i>逻辑拓扑</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('tasks.html') + activeClass('task-run.html') + '" href="tasks.html"><i class="bi bi-clipboard2-pulse me-1"></i>巡检任务</a></li>' +
+              '<li class="nav-item"><a class="nav-link' + activeClass('diag.html') + '" href="diag.html"><i class="bi bi-signpost-split me-1"></i>网络诊断</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('results.html') + '" href="results.html"><i class="bi bi-clipboard-data me-1"></i>巡检结果</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('diagnosis.html') + '" href="diagnosis.html"><i class="bi bi-tools me-1"></i>故障诊断</a></li>' +
               '<li class="nav-item"><a class="nav-link' + activeClass('alerts.html') + '" href="alerts.html"><i class="bi bi-bell me-1"></i>告警中心</a></li>' +

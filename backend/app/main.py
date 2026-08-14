@@ -7,6 +7,7 @@ from app.api.assets import router as assets_router
 from app.api.audit import router as audit_router
 from app.api.auth import router as auth_router
 from app.api.dashboard import router as dashboard_router
+from app.api.diagnostics import router as diagnostics_router
 from app.api.diagnosis import router as diagnosis_router
 from app.api.discovery import router as discovery_router
 from app.api.inspection import router as inspection_router
@@ -67,3 +68,4 @@ app.include_router(scheduler_router)
 app.include_router(discovery_router)
 app.include_router(topology_router)
 app.include_router(users_router)
+app.include_router(diagnostics_router)

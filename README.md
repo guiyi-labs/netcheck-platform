@@ -62,10 +62,16 @@ curl http://localhost:18082
 - 「逻辑拓扑」：按资产状态和类型展示网络逻辑拓扑。
 - 「报告管理」：生成、下载和删除 Excel 巡检报告。
 - 「审计日志」：查看登录、资产、任务、告警、报告等关键操作记录（阶段 A 新增）。
+- 「用户管理」：管理员创建账号，分配 admin/operator/viewer 角色（阶段 B 新增）。
+- 「资产变更历史」：资产新增/更新（字段级 diff）/删除全程可追溯（阶段 B 新增）。
 
 阶段 A（工程加固）新增能力：token 过期与登录失败限流、修改密码、巡检异步执行（后台队列 +
 前端轮询）、关键表组合索引、MySQL 可选部署、`.env.example` 配置外置、审计日志、备份脚本
 （`scripts/backup.sh` / `scripts/backup.ps1`）。
+
+阶段 B（业务补强）新增能力：邮件 SMTP / Webhook 告警通知（含等级阈值）、资产 CSV 批量导入导出、
+任务取消 / 失败重试 / Cron 调度、多用户与角色权限（admin/operator/viewer）、TLS 证书检测器
+（有效期预警）、资产变更日志与历史查询。
 
 接口示例：
 
@@ -84,10 +90,14 @@ curl.exe -s http://localhost:8000/api/assets -H "Authorization: Bearer $token"
 
 - `POST /api/auth/login`、`POST /api/auth/logout`、`GET /api/auth/me`
 - `POST /api/auth/change-password`（验证原密码、强制密码长度、改密后旧 token 失效）
+- `GET/POST /api/users`、`PUT/DELETE /api/users/{id}`（用户管理，仅 admin）
 - `GET/POST /api/assets`、`GET/PUT/DELETE /api/assets/{id}`、`GET /api/assets/meta/types`
+- `GET /api/assets/{id}/changes`（资产字段级变更历史）
+- `POST /api/assets/import`（CSV 批量导入）、`GET /api/assets/export`（CSV 导出）
 - `GET/POST /api/tasks`、`GET/PUT /api/tasks/{id}`
 - `POST /api/tasks/{id}/enable`、`POST /api/tasks/{id}/disable`、`POST /api/tasks/{id}/run`（异步提交）
 - `GET /api/tasks/{id}/runs`、`GET /api/tasks/runs/{run_id}`（轮询状态）、`GET /api/tasks/runs/{run_id}/results`
+- `POST /api/tasks/runs/{run_id}/cancel`（取消执行）、`POST /api/tasks/runs/{run_id}/retry`（失败重试）
 - `GET /api/diagnosis`、`GET /api/diagnosis/{id}`、`GET /api/diagnosis/runs/{run_id}`
 - `POST /api/diagnosis/runs/{run_id}/generate`
 - `GET /api/dashboard/summary`、`GET /api/dashboard/asset-status`
