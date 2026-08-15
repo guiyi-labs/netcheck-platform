@@ -21,6 +21,7 @@ from app.services.interface_rate import (
 def test_vendor_adapters_allowlist():
     assert "linux" in SSH_VENDOR_ADAPTERS
     assert "cisco_ios" in SSH_VENDOR_ADAPTERS
+    assert "h3c_comware" in SSH_VENDOR_ADAPTERS
     assert "generic" in SSH_VENDOR_ADAPTERS
 
 
@@ -28,7 +29,8 @@ def test_readonly_commands_allowlist_no_write_commands():
     for vendor, cmds in SSH_READONLY_COMMANDS.items():
         for cmd in cmds:
             assert "show" in cmd or "cat" in cmd or "uname" in cmd or "hostname" in cmd \
-                or cmd.startswith("ip ") or "uptime" in cmd or "free" in cmd or "df" in cmd
+                or cmd.startswith("ip ") or "uptime" in cmd or "free" in cmd or "df" in cmd \
+                or cmd.startswith("display ")
             assert not any(w in cmd for w in ("configure", "write", "copy run", "reload"))
 
 
@@ -340,3 +342,86 @@ def test_collect_ssh_parse_failed_detected(monkeypatch):
         assert any(v == "parse_failed" for v in result.command_errors.values())
     finally:
         ssh_collector.PARSERS["linux"]["parser"] = original
+
+
+# ---------- H3C Comware 适配器（mock 输出验证，无真实 H3C 设备） ----------
+
+def _h3c_client():
+    return _FakeExecClient({
+        "display version": (
+            "H3C Comware Software, Version 7.1.070, Release 1118P02\n"
+            "H3C S5560X-30C-EI\n"
+            "H3C uptime is 2 weeks, 1 day, 3 hours, 4 minutes\n"
+        ),
+        "display interface brief": (
+            "Brief information on interfaces in route mode:\n"
+            "Link: ADM - administratively down; Stby - standby\n"
+            "Interface            Link         Speed   Duplex Type PVID Description\n"
+            "GE1/0/1              UP           1G      F(a)   A    1    to-core\n"
+            "GE1/0/2              DOWN         1G      F(a)   A    1    --\n"
+            "Vlan-interface1      UP           10G     F(a)   R    --   --\n"
+        ),
+        "display ip routing-table": (
+            "Destinations : 5        Routes : 5\n"
+            "Destination/Mask   Proto   Pre  Cost        NextHop         Interface\n"
+            "0.0.0.0/0          Static  60   0           10.0.0.254       Vlan-interface1\n"
+            "10.0.0.0/24        Direct  0    0           10.0.0.1         Vlan-interface1\n"
+            "192.168.1.0/24     Direct  0    0           192.168.1.1      Vlan-interface1\n"
+        ),
+        "display clock": (
+            "2026-08-15 14:30:00\n"
+            "Friday\n"
+            "Time Zone : China Standard Time\n"
+        ),
+    })
+
+
+def test_h3c_parser_display_version():
+    from app.services.ssh_collector import _parse_h3c_comware_output
+
+    facts = _parse_h3c_comware_output("display version", _h3c_client().outputs["display version"])
+    assert facts.get("os_version") == "Comware 7.1.070"
+    assert facts.get("uptime") == "2 weeks, 1 day, 3 hours, 4 minutes"
+
+
+def test_h3c_parser_display_interface_brief():
+    from app.services.ssh_collector import _parse_h3c_comware_output
+
+    facts = _parse_h3c_comware_output("display interface brief", _h3c_client().outputs["display interface brief"])
+    assert facts.get("interfaces_count") == "3"
+    assert facts.get("up_count") == "2"
+    assert facts.get("down_count") == "1"
+
+
+def test_h3c_parser_display_ip_routing_table():
+    from app.services.ssh_collector import _parse_h3c_comware_output
+
+    facts = _parse_h3c_comware_output("display ip routing-table", _h3c_client().outputs["display ip routing-table"])
+    assert facts.get("routes_count") == "3"
+
+
+def test_h3c_parser_display_clock():
+    from app.services.ssh_collector import _parse_h3c_comware_output
+
+    facts = _parse_h3c_comware_output("display clock", _h3c_client().outputs["display clock"])
+    assert facts.get("system_time") == "2026-08-15 14:30:00"
+
+
+def test_collect_ssh_h3c_comware_end_to_end(monkeypatch):
+    """H3C 端到端：vendor=h3c_comware 被适配器接受并解析成功。"""
+    client = _h3c_client()
+
+    async def fake_connect(host, port, username, password, pkey, host_key_policy):
+        host_key_policy.captured = "h3c-fp"
+        return client
+
+    _patch_factory(monkeypatch, fake_connect)
+    result = _run("10.0.1.1", "h3c_comware", password="pass")
+    assert result.status == "ok"
+    assert result.facts.get("os_version") == "Comware 7.1.070"
+    assert result.facts.get("routes_count") == "3"
+    assert all(
+        cmd in ("display version", "display interface brief",
+                "display ip routing-table", "display clock")
+        for cmd in result.raw_outputs
+    )

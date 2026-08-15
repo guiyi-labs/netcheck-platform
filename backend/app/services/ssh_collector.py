@@ -1,6 +1,6 @@
 """SSH 只读采集器：基于 paramiko，host key 校验 + 命令 allowlist + 输出脱敏。
 
-- 第一阶段只支持固定厂商/平台适配器（linux / cisco_ios / generic）；
+- 支持厂商/平台适配器（linux / cisco_ios / h3c_comware / generic）；
 - 区分 host_key_unknown / host_key_mismatch / auth_failed / conn_refused /
   timeout / cmd_not_supported / parse_failed；
 - 原始输出长度上限（MAX_SSH_OUTPUT_BYTES），脱敏后不保留 banner/secret/完整配置；
@@ -108,10 +108,68 @@ def _parse_cisco_ios_output(cmd: str, output: str) -> dict:
     return facts
 
 
+def _parse_h3c_comware_output(cmd: str, output: str) -> dict:
+    """H3C Comware 命令输出解析（display 系列语法）。
+
+    注意：本适配器以真实 Comware CLI 输出格式编写，目前仅以 mock 输出验证，
+    无真实 H3C 设备验证。
+    """
+    facts: dict = {}
+    lines = output.strip().splitlines()
+    if cmd == "display version":
+        # 形如: H3C Comware Software, Version 7.1.070, Release 1118P02
+        for line in lines:
+            if "Comware Software" in line:
+                m = re.search(r"Version\s+([\d.]+(?:[A-Z]\d+)?)", line)
+                if m:
+                    facts["os_version"] = "Comware " + m.group(1)
+                break
+        # Uptime 形如:  H3C uptime is 1 week, 2 days, 3 hours, 4 minutes
+        m = re.search(r"uptime is\s+(.+)", output)
+        if m:
+            facts["uptime"] = m.group(1).strip()
+    elif cmd == "display interface brief":
+        # 表头行不计入；统计 up/up 与 down/down 计数（Comware 输出为
+        # Interface  Link  Speed  Duplex  Type  PVID   Description）
+        stats = {"interfaces_count": 0, "up_count": 0, "down_count": 0}
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("Interface") or \
+               stripped.startswith("---"):
+                continue
+            if re.match(r"^(GE|GigabitEthernet|XGE|Ten-GigabitEthernet|Eth|Ethernet|LoopBack|InLoopBack|Vlan-interface)", stripped):
+                stats["interfaces_count"] += 1
+                if "UP" in stripped.upper():
+                    stats["up_count"] += 1
+                elif "DOWN" in stripped.upper():
+                    stats["down_count"] += 1
+        if stats["interfaces_count"]:
+            facts.update({k: str(v) for k, v in stats.items()})
+    elif cmd == "display ip routing-table":
+        # 统计路由条数（跳过表头与摘要行）
+        count = 0
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("Destination") or \
+               stripped.startswith("---") or stripped.startswith("Total"):
+                continue
+            if re.match(r"^(\d{1,3}\.){3}\d{1,3}", stripped):
+                count += 1
+        if count:
+            facts["routes_count"] = str(count)
+    elif cmd == "display clock":
+        # 形如: 2026-08-15 14:30:00
+        m = re.search(r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", output)
+        if m:
+            facts["system_time"] = m.group(1)
+    return facts
+
+
 # vendor → 解析器
 PARSERS: dict[str, dict[str, any]] = {
     "linux": {"parser": _parse_linux_output, "commands": SSH_READONLY_COMMANDS.get("linux", [])},
     "cisco_ios": {"parser": _parse_cisco_ios_output, "commands": SSH_READONLY_COMMANDS.get("cisco_ios", [])},
+    "h3c_comware": {"parser": _parse_h3c_comware_output, "commands": SSH_READONLY_COMMANDS.get("h3c_comware", [])},
     "generic": {"parser": lambda c, o: {}, "commands": SSH_READONLY_COMMANDS.get("generic", [])},
 }
 

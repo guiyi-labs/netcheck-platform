@@ -26,7 +26,7 @@ SNMP_PRIV_PROTOCOLS = {
 }
 
 # SSH 固定厂商适配器 allowlist
-SSH_VENDOR_ADAPTERS = {"linux", "cisco_ios", "generic"}
+SSH_VENDOR_ADAPTERS = {"linux", "cisco_ios", "h3c_comware", "generic"}
 
 # SSH 只读命令 allowlist（不允许任意命令拼接）
 SSH_READONLY_COMMANDS = {
@@ -34,6 +34,8 @@ SSH_READONLY_COMMANDS = {
               "cat /etc/hosts", "uptime", "free -h", "df -h"],
     "cisco_ios": ["show version", "show ip interface brief", "show ip route",
                   "show interfaces status", "show clock"],
+    "h3c_comware": ["display version", "display interface brief",
+                    "display ip routing-table", "display clock"],
     "generic": ["hostname", "uname -a"],
 }
 
@@ -42,6 +44,7 @@ CONFIG_READ_COMMANDS = {
     "linux": ["cat /etc/network/interfaces", "cat /etc/ssh/sshd_config",
               "cat /etc/hosts"],
     "cisco_ios": ["show running-config"],
+    "h3c_comware": ["display current-configuration"],
     "generic": ["hostname"],
 }
 # 单次配置备份允许的最大行数/字节数（N2 有界）
