@@ -34,6 +34,8 @@ NetCheck 将网络运维中的“资产在哪里、哪里异常、异常依据�
 | 运维视图 | 仪表盘趋势、全局结果检索、Excel 报告、资产状态与逻辑拓扑 |
 | 设备采集 | SNMPv3 authPriv（SHA-256/SHA + AES，OID allowlist，64 位计数器与速率）、SSH 只读（厂商适配器 + 命令 allowlist + host key 校验） |
 | 配置备份与差异 | 只读配置采集（命令 allowlist）、多行 Secret 脱敏（PEM/ISAKMP/WireGuard）、SHA-256 去重、快照保留上限、行级 diff（上下文/行数上限）与变更审计 |
+| 配置合规基线 | 将任一配置快照标记为设备基线（同设备唯一），最新快照与基线行级比对生成合规报告（pass/warn/fail）；粒度如实标注为行级 diff（非语义级） |
+| 厂商适配器 | SSH 只读采集按厂商 CLI 适配：`linux`、`cisco_ios`、`h3c_comware`（`display` 系列）、`generic` 兜底；新增厂商只需登记命令 allowlist + 解析器（见 [协议覆盖说明](docs/protocol-coverage.md)） |
 | LLDP 邻居发现（N4.1） | SNMPv3 authPriv WALK lldpRem 邻居表（真实 lldpd AgentX 布局 + 标准布局回退），按 `time_mark.local_port.lldp_index` 解析索引，邻居观测 upsert（last_seen 幂等、无虚构删除）与 devices.html 视图 |
 | 可复现演示 | Compose 内置正常、HTTP 500、慢响应和 DNS 可解析的演示目标服务 |
 
@@ -128,4 +130,5 @@ pytest -q
 - [测试报告](docs/final-delivery/test-report.md)
 - [演示指南](docs/operations/demo-guide.md)
 - [快速开始](docs/operations/quickstart.md)
+- [协议覆盖与厂商适配说明](docs/protocol-coverage.md)
 - [最终交付清单](docs/final-delivery/delivery-checklist.md)

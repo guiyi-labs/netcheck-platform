@@ -3,6 +3,18 @@
 ## [Unreleased]
 
 ### Added
+- **网络自动化增强（厂商适配 + 合规基线）**：
+  - **H3C Comware SSH 适配器**（C1）：`display version` / `display interface
+    brief` / `display ip routing-table` / `display clock` 解析与命令 allowlist，
+    配置备份命令 `display current-configuration`；mock 输出验证、如实标注无
+    真实 H3C 设备（+5 测试）。
+  - **配置合规基线**（C2）：`DeviceConfigSnapshot.is_baseline`（同设备唯一）、
+    `POST /api/devices/{id}/configs/{snapshot_id}/baseline`（标记/取消）、
+    `GET /api/devices/{id}/configs/compliance`（最新快照 vs 基线行级合规报告，
+    pass/warn/fail，粒度如实标注为行级 diff 非语义级；+12 测试）。
+  - **协议覆盖文档**（C3）：`docs/protocol-coverage.md` 梳理 SNMPv3/SSH/HTTP/
+    LLDP/ICMP/DNS 协议栈、厂商矩阵（linux/cisco_ios/h3c_comware/generic）、
+    合规基线说明与扩展点代码索引；README 能力表与交付材料同步。
 - **开源门面文件**：新增 `SECURITY.md`（Supported Versions / 漏洞上报与披露时间线
   / threat model 边界 / CI 与供应链控制 / 凭据处理 / 安全贡献清单）与
   `CONTRIBUTING.md`（预置条件 / 快速开始 / 代码规范 / PR 流程 / Issue 上报 /
