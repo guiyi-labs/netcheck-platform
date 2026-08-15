@@ -31,23 +31,26 @@ NetCheck 将网络运维中的“资产在哪里、哪里异常、异常依据�
 | 运维视图 | 仪表盘趋势、全局结果检索、Excel 报告、资产状态与逻辑拓扑 |
 | 设备采集 | SNMPv3 authPriv（SHA-256/SHA + AES，OID allowlist，64 位计数器与速率）、SSH 只读（厂商适配器 + 命令 allowlist + host key 校验） |
 | 配置备份与差异 | 只读配置采集（命令 allowlist）、多行 Secret 脱敏（PEM/ISAKMP/WireGuard）、SHA-256 去重、快照保留上限、行级 diff（上下文/行数上限）与变更审计 |
+| LLDP 邻居发现（N4.1） | SNMPv3 authPriv WALK lldpRem 邻居表（真实 lldpd AgentX 布局 + 标准布局回退），按 `time_mark.local_port.lldp_index` 解析索引，邻居观测 upsert（last_seen 幂等、无虚构删除）与 devices.html 视图 |
 | 可复现演示 | Compose 内置正常、HTTP 500、慢响应和 DNS 可解析的演示目标服务 |
 
-当前能力来自第 1–6 批迭代 + N1/N2/N2.1/N3 网络采集与配置备份（SNMPv3/SSH/配置差异已在真实容器
-链路验收，证据见 `docs/final-delivery/n3-real-verification.md`）。完整实现范围、测试报告和答辩
+当前能力来自第 1–6 批迭代 + N1/N2/N2.1/N3/N4 网络采集、配置备份与 LLDP 邻居发现。
+SNMPv3/SSH/配置差异已在真实容器链路验收（`docs/final-delivery/n3-real-verification.md`）；
+LLDP 通过**两节点 lldpd AgentX 真实 SNMPv3 authPriv WALK** 验收（全链路证据见
+`docs/final-delivery/n4-lldp-real-verification.md`）。完整实现范围、测试报告和答辩
 材料见 [最终交付文档](docs/final-delivery/delivery-checklist.md)。
 
 ## 网络运维扩展路线
 
-已由 N1/N2/N2.1/N3 落地并真实验收：SNMPv3/SSH 设备采集与凭据隔离、设备配置备份与版本差异
-（见上方「已实现能力」与 `docs/final-delivery/n3-real-verification.md`）。以下方向是后续扩展项
-（N4/N5，尚未列为已完成能力）：
+已由 N1/N2/N2.1/N3/N4 落地并真实验收：SNMPv3/SSH 设备采集与凭据隔离、设备配置备份与
+版本差异（`docs/final-delivery/n3-real-verification.md`）、LLDP 邻居发现（真实 WALK
+证据见 `docs/final-delivery/n4-lldp-real-verification.md`）。以下方向仍是后续扩展项
+（**尚未实现/未验证**，N4.1 明确不做多厂商归一化）：
 
-- LLDP 邻居发现与物理 / 逻辑拓扑关联；
-- 接口流量、丢包、错误包和链路可用性指标（趋势）；
-- 配置变化接入告警通道与差异导出（Excel/文本）；
-- 多厂商（Cisco/JunOS）配置对比与格式归一化；
-- 基于 containerlab / FRRouting 的真实网络实验场景。
+- 接口流量、丢包、错误包和链路可用性指标长期趋势（当前为采集样本 + 近距离速率计算）；
+- 多厂商（Cisco/JunOS）LLDP-MIB 布局归一化与配置对比；
+- 基于 containerlab / FRRouting 的真实网络实验场景；
+- LLDP 邻居与逻辑拓扑的自动关联。
 
 ## 快速启动
 

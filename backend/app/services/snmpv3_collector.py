@@ -327,72 +327,132 @@ def run_snmpv3_sync(host: str, username: str, auth_key: str, priv_key: str,
 
 # ---- N4 LLDP 邻居采集（复用同一传输/用户构造，mock 友好） ----
 
-# lldpRemTable 列 OID（列号 → 语义字段）
-LLDP_REM_COLUMNS = {
-    "1.0.8802.1.1.2.1.3.7.1.1": "time_mark",      # lldpRemTimeMark
-    "1.0.8802.1.1.2.1.3.7.1.2": "local_port",     # lldpRemLocalPortNum
-    "1.0.8802.1.1.2.1.3.7.1.3": "chassis_subtype",
-    "1.0.8802.1.1.2.1.3.7.1.4": "chassis_id",
-    "1.0.8802.1.1.2.1.3.7.1.5": "port_subtype",
-    "1.0.8802.1.1.2.1.3.7.1.6": "port_id",
-    "1.0.8802.1.1.2.1.3.7.1.7": "sysname",
-    "1.0.8802.1.1.2.1.3.7.1.8": "sysdesc",
-    "1.0.8802.1.1.2.1.3.7.1.9": "sys_cap_supported",
-    "1.0.8802.1.1.2.1.3.7.1.10": "sys_cap_enabled",
-    "1.0.8802.1.1.2.1.3.7.1.11": "addr_type",
-    "1.0.8802.1.1.2.1.3.7.1.12": "addr",
+# lldpRemTable 远端邻居列（列号 → 语义字段）。
+# 兼容两套真实布局：
+#   1) 标准 IEEE LLDP-MIB lldpRemTable = 1.0.8802.1.1.2.1.3.7，列 3..10；
+#   2) lldpd(1.x) AgentX 实际注册的远端邻居表 = 1.0.8802.1.1.2.1.4.1.1，
+#      仅列 4..12（time_mark/local_port/lldp_index 在行索引里，无独立列）。
+# 行索引统一解析为 time_mark.local_port.lldp_index；time_mark 是“记录最后
+# 变更时刻”的 TimeFilter tick（随 LLDP 周期刷新），绝不是墙钟/Unix 时间戳。
+LLDP_REM_TABLE_STANDARD = "1.0.8802.1.1.2.1.3.7.1"
+LLDP_REM_TABLE_LLDPD = "1.0.8802.1.1.2.1.4.1.1"
+
+# 标准 lldpRemTable：列号 → 字段
+LLDP_REM_STANDARD_COLUMNS = {
+    f"{LLDP_REM_TABLE_STANDARD}.3": "chassis_subtype",
+    f"{LLDP_REM_TABLE_STANDARD}.4": "chassis_id",
+    f"{LLDP_REM_TABLE_STANDARD}.5": "port_subtype",
+    f"{LLDP_REM_TABLE_STANDARD}.6": "port_id",
+    f"{LLDP_REM_TABLE_STANDARD}.7": "sysname",
+    f"{LLDP_REM_TABLE_STANDARD}.8": "sysdesc",
+    f"{LLDP_REM_TABLE_STANDARD}.9": "sys_cap_supported",
+    f"{LLDP_REM_TABLE_STANDARD}.10": "sys_cap_enabled",
 }
+# lldpd AgentX 实际布局：列 4..12（其 1/2/3 列为索引段，不 WALK）
+LLDP_REM_LLDPD_COLUMNS = {
+    f"{LLDP_REM_TABLE_LLDPD}.4": "chassis_subtype",
+    f"{LLDP_REM_TABLE_LLDPD}.5": "chassis_id",
+    f"{LLDP_REM_TABLE_LLDPD}.6": "port_subtype",
+    f"{LLDP_REM_TABLE_LLDPD}.7": "port_id",
+    f"{LLDP_REM_TABLE_LLDPD}.8": "port_desc",
+    f"{LLDP_REM_TABLE_LLDPD}.9": "sysname",
+    f"{LLDP_REM_TABLE_LLDPD}.10": "sysdesc",
+    f"{LLDP_REM_TABLE_LLDPD}.11": "sys_cap_supported",
+    f"{LLDP_REM_TABLE_LLDPD}.12": "sys_cap_enabled",
+}
+# 默认 WALK 候选：优先 lldpd 真实布局，其次标准 lldpRemTable
+LLDP_REM_LAYOUTS = [
+    LLDP_REM_LLDPD_COLUMNS,
+    LLDP_REM_STANDARD_COLUMNS,
+]
+# 向后兼容（历史测试引用）
+LLDP_REM_COLUMNS = LLDP_REM_STANDARD_COLUMNS
+
+
+def _parse_lldp_index(full_oid: str, col_oid: str) -> tuple[int, int, int] | None:
+    """解析 lldpRemTable 行索引：time_mark.local_port.lldp_index。
+
+    返回三元组或 None（前缀不匹配/无法解析）。
+    """
+    if not full_oid.startswith(col_oid + "."):
+        return None
+    suffix = full_oid[len(col_oid) + 1:]
+    parts = suffix.split(".")
+    if len(parts) < 3:
+        return None
+    try:
+        return (int(parts[0]), int(parts[1]), int(parts[2]))
+    except ValueError:
+        return None
 
 
 async def _collect_lldp_via_transport(transport, username, auth_key, priv_key,
                                       auth_algo, priv_algo,
                                       max_rows: int = 64) -> dict:
-    """WALK lldpRemTable 并按表索引聚合成邻居行。
+    """WALK 远端 LLDP 邻居表并按行索引聚合为邻居字典列表。
 
-    行索引：lldpRemTimeMark.lldpRemLocalPortNum.lldpRemIndex。
-    返回：{"status": str, "neighbors": [dict...], "error": str|None}
+    支持两种真实布局（优先 lldpd，回退标准）。
+    行索引解析：time_mark.local_port.lldp_index。
+    返回：{"status": str, "neighbors": [dict...], "error": str|None,
+            "layout": str|None, "unsupported": str|None}。
+    status 可能为 ok / timeout / auth_failed / priv_failed /
+    error；当两种布局都未命中且非传输故障时为 ok + 空邻居
+    （unsupported="no_llpd_data"，即代理无 LLDP MIB 数据）。
     """
     user = _user(username, auth_key, priv_key, auth_algo, priv_algo)
-    rows: dict[tuple[int, int, int], dict] = {}
-    for col_oid, field_name in LLDP_REM_COLUMNS.items():
-        collected, walk_status, _ = await _walk(transport, user, col_oid, subtree=col_oid)
-        if walk_status is not None and walk_status != "ok":
-            # 认证/超时已在 sys 阶段捕获；表不存在/不支持时直接返回空
-            return {
-                "status": "ok",
-                "neighbors": [],
-                "error": None,
-                "unsupported": walk_status,
-            }
-        for full_oid, value in (collected or []):
-            # 剥离列号前缀取索引部分：time_mark.local_port.lldp_index
-            suffix = full_oid[len(col_oid) + 1:]
-            parts = suffix.split(".")
-            if len(parts) < 3:
-                continue
-            try:
-                time_mark, local_port, lldp_index = (int(p) for p in parts[:3])
-            except ValueError:
-                continue
-            key = (time_mark, local_port, lldp_index)
-            entry = rows.setdefault(key, {})
-            entry[field_name] = value
-            if len(rows) >= max_rows:
+    # 尝试每种布局，取有数据的
+    for columns in LLDP_REM_LAYOUTS:
+        rows: dict[tuple[int, int, int], dict] = {}
+        got_data = False
+        for col_oid, field_name in columns.items():
+            collected, walk_status, _ = await _walk(transport, user, col_oid, subtree=col_oid)
+            if walk_status is not None and walk_status != "ok":
+                if walk_status in ("timeout", "auth_failed", "priv_failed"):
+                    # 传输/认证/解密失败：不是“表不存在”，直接上抛
+                    return {
+                        "status": walk_status,
+                        "neighbors": [],
+                        "error": f"LLDP WALK {walk_status}",
+                        "layout": None,
+                        "unsupported": walk_status,
+                    }
+                # 其它（如 no-such-object）视为该布局不支持 → 尝试下一布局
+                got_data = False
                 break
-    neighbors = []
-    for (time_mark, local_port, lldp_index), raw in sorted(rows.items()):
-        neighbors.append({
-            "time_mark": time_mark,
-            "local_port": local_port,
-            "lldp_index": lldp_index,
-            "chassis_subtype": _safe_int(raw.get("chassis_subtype")),
-            "chassis_id": raw.get("chassis_id"),
-            "port_subtype": _safe_int(raw.get("port_subtype")),
-            "port_id": raw.get("port_id"),
-            "sysname": raw.get("sysname"),
-            "sysdesc": raw.get("sysdesc"),
-        })
-    return {"status": "ok", "neighbors": neighbors, "error": None}
+            for full_oid, value in (collected or []):
+                if not value:
+                    continue
+                got_data = True
+                index = _parse_lldp_index(full_oid, col_oid)
+                if index is None:
+                    continue
+                time_mark, local_port, lldp_index = index
+                key = (time_mark, local_port, lldp_index)
+                entry = rows.setdefault(key, {})
+                entry[field_name] = value
+                if len(rows) >= max_rows:
+                    break
+        if not got_data:
+            continue
+        # 有数据 → 组装邻居列表
+        neighbors = []
+        for (time_mark, local_port, lldp_index), raw in sorted(rows.items()):
+            neighbors.append({
+                "time_mark": time_mark,
+                "local_port": local_port,
+                "lldp_index": lldp_index,
+                "chassis_subtype": _safe_int(raw.get("chassis_subtype")),
+                "chassis_id": raw.get("chassis_id"),
+                "port_subtype": _safe_int(raw.get("port_subtype")),
+                "port_id": raw.get("port_id"),
+                "port_desc": raw.get("port_desc"),
+                "sysname": raw.get("sysname"),
+                "sysdesc": raw.get("sysdesc"),
+            })
+        layout = "lldpd" if columns is LLDP_REM_LLDPD_COLUMNS else "standard"
+        return {"status": "ok", "neighbors": neighbors, "error": None, "layout": layout}
+    # 所有布局都无数据
+    return {"status": "ok", "neighbors": [], "error": None, "layout": None, "unsupported": "no_llpd_data"}
 
 
 async def collect_lldp(host: str, username: str, auth_key: str, priv_key: str,
