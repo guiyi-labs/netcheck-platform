@@ -71,7 +71,7 @@ iso.0.8802.1.1.2.1.4.1.1.9.150100.1172.1 = STRING: "<ll-a-hostname>"
 
 ### 一键复现运行记录（lldp-lab.sh）
 
-`scripts/lab/lldp-lab.sh`（build → up → verify → down）实测输出（脱敏）：
+`scripts/lab/lldp-lab.sh`（build → up → lldpcli邻居 → verify WALK → recreate验证 → down）实测输出（脱敏）：
 
 ```text
 [lldp-lab] 构建镜像 netcheck-ll-node:lab ...（Dockerfile.lldp，Alpine 3.22）
@@ -79,18 +79,36 @@ iso.0.8802.1.1.2.1.4.1.1.9.150100.1172.1 = STRING: "<ll-a-hostname>"
 [lldp-lab] 启动 ll-a / ll-b（--ip 172.19.0.2 / 172.19.0.3）
 [lldp-lab] veth 互联（ll-a ↔ ll-b）
 [lldp-lab] 等待 LLDP 发现（~25s）
+[lldp-lab] === ll-a lldpcli show neighbors ===    ← 独立二层邻居确认（AI 复核点1）
+LLDP neighbors:  Interface: vethB2, via: LLDP … ChassisID: mac XX:XX:XX:XX:XX:XX …
+                SysName: <hostname> PortID: ifname vethA2
+[lldp-lab] === ll-b lldpcli show neighbors ===    （对称）
 [lldp-lab] === ll-a view (expect ll-b) ===
 iso.0.8802.1.1.2.1.4.1.1.9.<tm>.<port>.1 = STRING: "<hostname>"
 iso.0.8802.1.1.2.1.4.1.1.4.<tm>.<port>.1 = INTEGER: 4
 iso.0.8802.1.1.2.1.4.1.1.6.<tm>.<port>.1 = INTEGER: 5
 [lldp-lab] === ll-b view (expect ll-a) ===  （对称，INTEGER: 4 / 5）
 [lldp-lab] VERIFY OK：双向 SNMPv3 authPriv LLDP WALK 通过（lldpd 布局 1.4.1.1）
+[lldp-lab] 销毁并重建 ll-a / ll-b（验证 entry 每次启动重建 USM 用户 + 邻居恢复）
+[lldp-lab] veth wire (ll-a:... <-> ll-b:...)
+[lldp-lab] VERIFY-RECREATE OK：USM 用户重建 + 邻居恢复 + WALK 通过
 [lldp-lab] remove ll-a / ll-b and bridge netcheck-ll（镜像保留）
 ```
 
 断言逻辑：sysname 列非空、chassis_subtype=4、port_subtype=5；MAC/主机名脱敏后输出。
 同场景也复核了网页 AI 建议（标准 lldpRemTable `1.3.7.1`）——真实 lldpd 的远端表
 实际注册在 `1.4.1.1`（列 4..12），采集器对两者均兼容。
+
+### 指挥中枢 6 点交叉复核落实情况（均已实测）
+
+| 复核点 | 落实 |
+|---|---|
+| 1. 二层邻居前提 | `lldpcli show neighbors` 独立确认（与 SNMP WALK 分步验证）；拓扑用 veth 直连 + netns，保证二层可达 |
+| 2. NET_RAW/NET_ADMIN | veth 辅助容器 `--privileged`（覆盖 NET_ADMIN+NET_RAW），收发实测正常 |
+| 3. AgentX socket 路径 | 显式 `agentXSocket /run/lldpd/agentx.sock`（snmpd master）+ `lldpd -x -X` 同路径，日志确认 "AgentX subagent connected" |
+| 4. MIB 与数值 OID 分离 | 全程纯数字 OID WALK（`1.4.1.1` lldpd 布局 + `1.3.7` 标准兜底），不依赖本机 LLDP-MIB 符号 |
+| 5. pysnmp 7.1 API | 采集器用 v3arch `walk_cmd()` + `UsmUserData`，与仓库现有 `snmpv3_collector.py`（257 测试）完全一致 |
+| 6. USM 用户持久化 | entry 脚本每次启动 `createUser` 重建；`verify_recreate` 销毁容器→重建→veth 重接→再 WALK 通过 |
 
 ## 3. 采集器布局适配（本次变更）
 

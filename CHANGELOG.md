@@ -36,6 +36,11 @@
   AgentX 从未启用。修正为 `lldpd -d -x -X <sock>`。
 - 超时边界误分类：`collect_lldp` 对不可达主机现在正确返回
   `status=timeout`（不再返回 `status=ok + neighbors=0`）。
+- `lldp-lab.sh` 增强（6 点交叉复核落实）：`lldpcli show neighbors`
+  独立确认二层邻居；`_launch` 抽取；双向行走严格断言（任一方失败
+  即整体失败）；新增 `recreate` 验证 USM 用户持久化（销毁容器→
+  重建→veth 重接→再 WALK；容器进程被 kill 即容器退出，故不用
+  docker restart——后者重置 netns 丢 veth）。
 
 ### Test
 - `backend/tests/test_lldp_collector.py`（新增，9 个）：
