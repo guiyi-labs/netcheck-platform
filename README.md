@@ -7,6 +7,9 @@
 
 > 面向中小型网络的资产巡检、故障诊断、报告与告警平台。
 
+参与贡献请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)；安全策略与漏洞上报流程见
+[SECURITY.md](SECURITY.md)。
+
 ## 项目定位
 
 NetCheck 将网络运维中的“资产在哪里、哪里异常、异常依据是什么、是否需要通知”组织成一条

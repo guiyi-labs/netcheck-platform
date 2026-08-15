@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- **开源门面文件**：新增 `SECURITY.md`（Supported Versions / 漏洞上报与披露时间线
+  / threat model 边界 / CI 与供应链控制 / 凭据处理 / 安全贡献清单）与
+  `CONTRIBUTING.md`（预置条件 / 快速开始 / 代码规范 / PR 流程 / Issue 上报 /
+  安全披露），针对 netcheck 的 SNMP/SSH host-key、AES-256-GCM 凭据加密、
+  配置脱敏、告警上报等实际安全点改写；README 顶部已链接两文件。
 - **N4.1 LLDP 真实 WALK 验收**：两节点 lldpd 1.0.19 / net-snmp 5.9.4
   Alpine 3.22 容器实验环境，SNMPv3 authPriv 真实 WALK 远端 LLDP-MIB
   证据（`1.0.8802.1.1.2.1.4.1.1` lldpd 布局列 4..12）。
