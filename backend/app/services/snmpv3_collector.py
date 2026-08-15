@@ -150,7 +150,13 @@ async def _get(transport, user, oid: str):
     return err_ind, err_status, var_binds
 
 
-async def _walk(transport, user, oid: str):
+async def _walk(transport, user, oid: str, subtree: str | None = None):
+    """WALK `oid` 子树，返回 [(full_oid, value_str), ...]。
+
+    subtree=None 时沿用历史行为（不设前缀停靠，可被 max_rows 截断）；
+    传入子树前缀时，遇到不再以该前缀开头的 OID 立即停止（防止越过
+    LLDP/lldpRemTable 边界混入 lldpLocalTable/system 等其它表数据）。
+    """
     results: list[tuple[str, str]] = []
     max_rows = settings.snmp_max_interfaces + 10
     iterator = walk_cmd(
@@ -158,6 +164,7 @@ async def _walk(transport, user, oid: str):
         ObjectType(ObjectIdentity(oid)),
     )
     count = 0
+    prefix = subtree or oid
     while count < max_rows:
         try:
             res = await anext(iterator)
@@ -168,6 +175,8 @@ async def _walk(transport, user, oid: str):
             return None, classify_error(err_ind, err_status), results
         for var_bind in var_binds:
             name = str(var_bind[0])
+            if not (name.startswith(prefix + ".") or name == prefix):
+                return results, None, results
             value = _snmp_value_str(var_bind[1])
             results.append((name, value))
         count += 1
@@ -346,7 +355,7 @@ async def _collect_lldp_via_transport(transport, username, auth_key, priv_key,
     user = _user(username, auth_key, priv_key, auth_algo, priv_algo)
     rows: dict[tuple[int, int, int], dict] = {}
     for col_oid, field_name in LLDP_REM_COLUMNS.items():
-        collected, walk_status, _ = await _walk(transport, user, col_oid)
+        collected, walk_status, _ = await _walk(transport, user, col_oid, subtree=col_oid)
         if walk_status is not None and walk_status != "ok":
             # 认证/超时已在 sys 阶段捕获；表不存在/不支持时直接返回空
             return {
