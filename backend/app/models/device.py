@@ -6,7 +6,7 @@
 """
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Float, func, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Float, Index, func, UniqueConstraint
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -67,6 +67,17 @@ OID_ALLOWLIST: dict[str, list[str]] = {
         "1.3.6.1.2.1.2.2.1.8",  # ifOperStatus
         "1.3.6.1.2.1.2.2.1.10", # ifInOctets
         "1.3.6.1.2.1.2.2.1.16", # ifOutOctets
+        "1.3.6.1.2.1.2.2.1.14", # ifInErrors
+        "1.3.6.1.2.1.2.2.1.20", # ifOutErrors
+        "1.3.6.1.2.1.2.2.1.13", # ifInDiscards
+        "1.3.6.1.2.1.2.2.1.19", # ifOutDiscards
+    ],
+    "lldp": [
+        "1.0.8802.1.1.2.1.1.1.0",   # lldpLocChassisId
+        "1.0.8802.1.1.2.1.1.2.0",   # lldpLocSysName
+        "1.0.8802.1.1.2.1.1.3.0",   # lldpLocSysDesc
+        "1.0.8802.1.1.2.1.3",       # lldpRemTable 子树
+        "1.0.8802.1.1.2.1.4",       # lldpStatsTable 子树
     ],
 }
 
@@ -78,6 +89,8 @@ for oids in OID_ALLOWLIST.values():
 OID_SUBTREE_PREFIXES = {
     "if_table": "1.3.6.1.2.1.2.2.1",
     "if_number": "1.3.6.1.2.1.2.1.0",
+    "lldp_rem": "1.0.8802.1.1.2.1.3",
+    "lldp_stats": "1.0.8802.1.1.2.1.4",
 }
 
 # 采集上限
@@ -192,6 +205,11 @@ class SnmpInterfaceMetric(Base):
     # 速率（从相邻样本计算）
     in_rate_bps: Mapped[float | None] = mapped_column(Float, nullable=True)
     out_rate_bps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # N4 错误/丢包计数器（最新值）
+    in_errors: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    out_errors: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    in_discards: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    out_discards: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # 上一个样本的时间与值（用于相邻计算）
     prev_in_octets: Mapped[int | None] = mapped_column(
         Integer, nullable=True
@@ -239,3 +257,68 @@ class DeviceConfigSnapshot(Base):
     changed: Mapped[bool] = mapped_column(default=False)  # 与上一快照相比是否变化
     truncated: Mapped[bool] = mapped_column(default=False)  # 输出超限标记（N2.1）
     collected_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+
+class InterfaceMetricSample(Base):
+    """N4 接口指标时间序列样本（append-only 历史表，配合最新状态表使用）。
+
+    - (device_id, interface_index, collected_at) 标识一次观测，采集侧主键，
+      接口重命名时 index 保持不变（名称随时间可变化）。
+    - sys_uptime: 采集时刻设备 sysUpTime（ticks）。比上一设备级样本变小 → restart。
+    - sample_marker: ok / restart / wrap / gap，用于渲染断线与重启语义。
+    - in/out_bps 为采集时按相邻样本与真实时间间隔计算的结果；原始计数器一并保留。
+    """
+
+    __tablename__ = "interface_metric_samples"
+    __table_args__ = (
+        Index("ix_ims_device_time", "device_id", "collected_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
+    interface_index: Mapped[int] = mapped_column(Integer)
+    interface_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    collected_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    in_octets: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    out_octets: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    in_bps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    out_bps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    in_errors: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    out_errors: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    in_discards: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    out_discards: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    admin_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    oper_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sys_uptime: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sample_marker: Mapped[str] = mapped_column(String(16), default="ok")  # ok/restart/wrap/gap
+    source: Mapped[str] = mapped_column(String(16), default="snmp")  # snmp / ssh / manual
+
+
+class ConfigChangeEvent(Base):
+    """N4 配置变化事件（独立于巡检 run 的事实表）。
+
+    - 一次真实配置变化（DeviceConfigSnapshot.changed=True）产生一个事件；
+    - (device_id, snapshot_id) 唯一：同一快照只记一次（并发采集中 DB 约束兜底）；
+    - alert_key: device:{id}:config_change:{diff_hash} — 同一 diff 不重复触发，
+      直到配置再次变化产生新 diff_hash；
+    - 设备→资产映射缺失时置 resolved=False 并记录原因，不生成孤儿 Alert。
+    """
+
+    __tablename__ = "config_change_events"
+    __table_args__ = (
+        UniqueConstraint("device_id", "snapshot_id", name="uq_config_event_snapshot"),
+        Index("ix_config_event_key", "alert_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
+    snapshot_id: Mapped[int] = mapped_column(
+        ForeignKey("device_config_snapshots.id"), index=True
+    )
+    diff_hash: Mapped[str] = mapped_column(String(64), index=True)
+    alert_key: Mapped[str] = mapped_column(String(255))
+    changed_lines: Mapped[int] = mapped_column(Integer, default=0)
+    triggered_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    alert_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 关联 Alert.id
+    resolved: Mapped[bool] = mapped_column(default=False)  # 通知已投递（无需再触发）
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)

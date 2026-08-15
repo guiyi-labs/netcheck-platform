@@ -232,6 +232,14 @@
           </div>
           <div class="modal-body">
             <div id="if-error" class="alert alert-danger d-none"></div>
+            <div class="d-flex justify-content-end mb-2">
+              <button class="btn btn-sm btn-outline-info me-2" id="if-trend-btn" title="接口 In/Out 速率趋势（N4）">
+                <i class="bi bi-graph-up-arrow me-1"></i>速率趋势
+              </button>
+              <button class="btn btn-sm btn-outline-secondary" id="if-lldp-btn" title="LLDP 邻居（N4）">
+                <i class="bi bi-diagram-3 me-1"></i>LLDP 邻居
+              </button>
+            </div>
             <div class="table-responsive">
               <table class="table table-sm align-middle">
                 <thead class="table-light">
@@ -278,9 +286,31 @@
             </div>
             <!-- diff 视图 -->
             <div class="mb-2">
-              <span class="fw-bold">配置差异</span>
-              <span class="badge bg-secondary" id="cfg-diff-meta"></span>
+              <div class="d-flex align-items-center mb-1">
+                <span class="fw-bold me-2">配置差异</span>
+                <span class="badge bg-secondary" id="cfg-diff-meta"></span>
+                <span class="ms-auto">
+                  <button class="btn btn-sm btn-outline-primary me-1" id="cfg-export-text" title="导出文本 diff（脱敏）">
+                    <i class="bi bi-file-text me-1"></i>导出文本
+                  </button>
+                  <button class="btn btn-sm btn-outline-success" id="cfg-export-excel" title="导出 Excel diff（脱敏）">
+                    <i class="bi bi-file-earmark-excel me-1"></i>导出 Excel
+                  </button>
+                </span>
+              </div>
               <pre class="border rounded p-2 mt-1 bg-light diff-view" id="cfg-diff" style="max-height:360px;overflow:auto;"></pre>
+            </div>
+            <!-- 配置变化事件 -->
+            <div class="mb-2">
+              <span class="fw-bold">配置变化事件（N4 告警联动）</span>
+              <div class="table-responsive mt-1">
+                <table class="table table-sm align-middle">
+                  <thead class="table-light">
+                    <tr><th>#</th><th>触发时间</th><th>变化行</th><th>diff hash</th><th>告警</th></tr>
+                  </thead>
+                  <tbody id="cfg-events-tbody"></tbody>
+                </table>
+              </div>
             </div>
             <!-- 最新脱敏配置 -->
             <div>
@@ -292,6 +322,7 @@
       </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
     <script src="js/api.js"></script>
     <script src="js/auth.js"></script>
     <script src="js/devices.js"></script>

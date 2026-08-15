@@ -14,7 +14,12 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.device import Device, DeviceCredential, SnmpInterfaceMetric
+from app.models.device import (
+    Device,
+    DeviceCredential,
+    InterfaceMetricSample,
+    SnmpInterfaceMetric,
+)
 from app.models.asset import Asset
 from app.services import credential_manager
 from app.services.interface_rate import compute_rate, classify_interface, now_utc
@@ -82,6 +87,30 @@ def _find_prev_metric(db: Session, device_id: int, index: int) -> SnmpInterfaceM
     )
 
 
+def _detect_restart(prev_sys_uptime: int | None, curr_sys_uptime: int | None) -> bool:
+    """sysUpTime（ticks）明显变小 → 设备重启。None 或相等不算。"""
+    if prev_sys_uptime is None or curr_sys_uptime is None:
+        return False
+    # ticks 变小且小于前值一半，视为重启（避免只差 1-2 tick 的抖动误判）
+    return curr_sys_uptime < prev_sys_uptime // 2
+
+
+def _sample_marker(prev: SnmpInterfaceMetric | None, curr_in: int | None,
+                   curr_out: int | None, restart: bool) -> str:
+    """样本状态标记：ok / restart / wrap / gap。"""
+    if restart:
+        return "restart"
+    if prev is not None:
+        # Counter64 回绕：当前值明显小于上一值（减计数器正常递增后不应反减）
+        if (curr_in is not None and prev.if_in_octets is not None
+                and curr_in < prev.if_in_octets):
+            return "wrap"
+        if (curr_out is not None and prev.if_out_octets is not None
+                and curr_out < prev.if_out_octets):
+            return "wrap"
+    return "ok"
+
+
 def _store_snmp_result(db: Session, device: Device, snmp_result) -> None:
     """把 SNMP 采集结果写库（接口指标 + 设备事实）。"""
     device.last_collected_at = now_utc()
@@ -99,6 +128,24 @@ def _store_snmp_result(db: Session, device: Device, snmp_result) -> None:
             setattr(device, field, snmp_result.facts[key])
 
     collected_at = now_utc()
+    # 设备级 sysUpTime（ticks），用于重启检测
+    sys_uptime_ticks = None
+    try:
+        sys_uptime_ticks = int(snmp_result.facts.get("sys_uptime") or 0) or None
+    except (TypeError, ValueError):
+        pass
+    prev_uptime = None
+    if sys_uptime_ticks is not None:
+        prev_metric_row = (
+            db.query(InterfaceMetricSample)
+            .filter(InterfaceMetricSample.device_id == device.id)
+            .order_by(InterfaceMetricSample.collected_at.desc())
+            .first()
+        )
+        if prev_metric_row is not None and prev_metric_row.sys_uptime is not None:
+            prev_uptime = prev_metric_row.sys_uptime
+    restart = _detect_restart(prev_uptime, sys_uptime_ticks)
+
     for entry in snmp_result.interfaces:
         idx = entry.get("index")
         if idx is None:
@@ -119,6 +166,10 @@ def _store_snmp_result(db: Session, device: Device, snmp_result) -> None:
             if_speed=entry.get("if_speed"),
             if_in_octets=entry.get("in_octets"),
             if_out_octets=entry.get("out_octets"),
+            in_errors=entry.get("in_errors"),
+            out_errors=entry.get("out_errors"),
+            in_discards=entry.get("in_discards"),
+            out_discards=entry.get("out_discards"),
             in_rate_bps=in_rate,
             out_rate_bps=out_rate,
             prev_in_octets=prev_in,
@@ -128,6 +179,27 @@ def _store_snmp_result(db: Session, device: Device, snmp_result) -> None:
             collected_at=collected_at,
         )
         db.add(metric)
+        # N4: append-only 历史样本
+        marker = _sample_marker(prev, entry.get("in_octets"), entry.get("out_octets"), restart)
+        db.add(InterfaceMetricSample(
+            device_id=device.id,
+            interface_index=idx,
+            interface_name=entry.get("name", f"if{idx}"),
+            collected_at=collected_at,
+            in_octets=entry.get("in_octets"),
+            out_octets=entry.get("out_octets"),
+            in_bps=in_rate,
+            out_bps=out_rate,
+            in_errors=entry.get("in_errors"),
+            out_errors=entry.get("out_errors"),
+            in_discards=entry.get("in_discards"),
+            out_discards=entry.get("out_discards"),
+            admin_status=entry.get("admin_status"),
+            oper_status=entry.get("oper_status"),
+            sys_uptime=sys_uptime_ticks,
+            sample_marker=marker,
+            source="snmp",
+        ))
     device.collect_status = "success"
     device.last_collect_error = None
     _purge_old_interfaces(db, device.id)

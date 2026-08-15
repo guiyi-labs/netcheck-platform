@@ -204,7 +204,7 @@ async def _collect_via_transport(transport, username, auth_key, priv_key,
                 facts[label] = value
         scanned += 1
 
-    # 2. 接口表 WALK（ifIndex/ifDescr/ifType/ifSpeed/ifAdminStatus/ifOperStatus/ifInOctets/ifOutOctets）
+    # 2. 接口表 WALK
     interfaces: dict[int, dict] = {}
     if_walks = {
         "1.3.6.1.2.1.2.2.1.2": "name",
@@ -214,6 +214,10 @@ async def _collect_via_transport(transport, username, auth_key, priv_key,
         "1.3.6.1.2.1.2.2.1.8": "oper_status",
         "1.3.6.1.2.1.2.2.1.10": "in_octets",
         "1.3.6.1.2.1.2.2.1.16": "out_octets",
+        "1.3.6.1.2.1.2.2.1.14": "in_errors",
+        "1.3.6.1.2.1.2.2.1.20": "out_errors",
+        "1.3.6.1.2.1.2.2.1.13": "in_discards",
+        "1.3.6.1.2.1.2.2.1.19": "out_discards",
     }
     for walk_oid, field_name in if_walks.items():
         rows, walk_status, _ = await _walk(transport, user, walk_oid)
@@ -242,6 +246,10 @@ async def _collect_via_transport(transport, username, auth_key, priv_key,
         entry["if_speed"] = _safe_int(entry.get("if_speed"))
         entry["admin_status"] = _safe_int(entry.get("admin_status"))
         entry["oper_status"] = _safe_int(entry.get("oper_status"))
+        entry["in_errors"] = _safe_counter(entry.get("in_errors"))
+        entry["out_errors"] = _safe_counter(entry.get("out_errors"))
+        entry["in_discards"] = _safe_counter(entry.get("in_discards"))
+        entry["out_discards"] = _safe_counter(entry.get("out_discards"))
         interface_list.append({k: v for k, v in entry.items()})
 
     result = SnmpResult(status="ok", facts=facts, interfaces=interface_list)
@@ -305,4 +313,102 @@ def run_snmpv3_sync(host: str, username: str, auth_key: str, priv_key: str,
     """同步入口（后台线程调用）。"""
     return asyncio.run(
         collect_snmpv3(host, username, auth_key, priv_key, auth_algo, priv_algo, port)
+    )
+
+
+# ---- N4 LLDP 邻居采集（复用同一传输/用户构造，mock 友好） ----
+
+# lldpRemTable 列 OID（列号 → 语义字段）
+LLDP_REM_COLUMNS = {
+    "1.0.8802.1.1.2.1.3.7.1.1": "time_mark",      # lldpRemTimeMark
+    "1.0.8802.1.1.2.1.3.7.1.2": "local_port",     # lldpRemLocalPortNum
+    "1.0.8802.1.1.2.1.3.7.1.3": "chassis_subtype",
+    "1.0.8802.1.1.2.1.3.7.1.4": "chassis_id",
+    "1.0.8802.1.1.2.1.3.7.1.5": "port_subtype",
+    "1.0.8802.1.1.2.1.3.7.1.6": "port_id",
+    "1.0.8802.1.1.2.1.3.7.1.7": "sysname",
+    "1.0.8802.1.1.2.1.3.7.1.8": "sysdesc",
+    "1.0.8802.1.1.2.1.3.7.1.9": "sys_cap_supported",
+    "1.0.8802.1.1.2.1.3.7.1.10": "sys_cap_enabled",
+    "1.0.8802.1.1.2.1.3.7.1.11": "addr_type",
+    "1.0.8802.1.1.2.1.3.7.1.12": "addr",
+}
+
+
+async def _collect_lldp_via_transport(transport, username, auth_key, priv_key,
+                                      auth_algo, priv_algo,
+                                      max_rows: int = 64) -> dict:
+    """WALK lldpRemTable 并按表索引聚合成邻居行。
+
+    行索引：lldpRemTimeMark.lldpRemLocalPortNum.lldpRemIndex。
+    返回：{"status": str, "neighbors": [dict...], "error": str|None}
+    """
+    user = _user(username, auth_key, priv_key, auth_algo, priv_algo)
+    rows: dict[tuple[int, int, int], dict] = {}
+    for col_oid, field_name in LLDP_REM_COLUMNS.items():
+        collected, walk_status, _ = await _walk(transport, user, col_oid)
+        if walk_status is not None and walk_status != "ok":
+            # 认证/超时已在 sys 阶段捕获；表不存在/不支持时直接返回空
+            return {
+                "status": "ok",
+                "neighbors": [],
+                "error": None,
+                "unsupported": walk_status,
+            }
+        for full_oid, value in (collected or []):
+            # 剥离列号前缀取索引部分：time_mark.local_port.lldp_index
+            suffix = full_oid[len(col_oid) + 1:]
+            parts = suffix.split(".")
+            if len(parts) < 3:
+                continue
+            try:
+                time_mark, local_port, lldp_index = (int(p) for p in parts[:3])
+            except ValueError:
+                continue
+            key = (time_mark, local_port, lldp_index)
+            entry = rows.setdefault(key, {})
+            entry[field_name] = value
+            if len(rows) >= max_rows:
+                break
+    neighbors = []
+    for (time_mark, local_port, lldp_index), raw in sorted(rows.items()):
+        neighbors.append({
+            "time_mark": time_mark,
+            "local_port": local_port,
+            "lldp_index": lldp_index,
+            "chassis_subtype": _safe_int(raw.get("chassis_subtype")),
+            "chassis_id": raw.get("chassis_id"),
+            "port_subtype": _safe_int(raw.get("port_subtype")),
+            "port_id": raw.get("port_id"),
+            "sysname": raw.get("sysname"),
+            "sysdesc": raw.get("sysdesc"),
+        })
+    return {"status": "ok", "neighbors": neighbors, "error": None}
+
+
+async def collect_lldp(host: str, username: str, auth_key: str, priv_key: str,
+                       auth_algo: str = "SHA-256", priv_algo: str = "AES-128",
+                       port: int = 161, max_rows: int = 64) -> dict:
+    """异步采集 LLDP 邻居（复用 SNMPv3 传输）。"""
+    if not _PYSNMP_AVAILABLE:  # pragma: no cover
+        return {"status": "error", "neighbors": [], "error": "pysnmp 未安装"}
+    try:
+        transport = await _transport_factory.create(host, port)
+        return await _collect_lldp_via_transport(
+            transport, username, auth_key, priv_key, auth_algo, priv_algo, max_rows,
+        )
+    except asyncio.TimeoutError:
+        return {"status": "timeout", "neighbors": [], "error": "SNMP 请求超时"}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("LLDP 采集异常 %s: %s", host, exc)
+        return {"status": "error", "neighbors": [], "error": str(exc)}
+
+
+def run_lldp_sync(host: str, username: str, auth_key: str, priv_key: str,
+                  auth_algo: str = "SHA-256", priv_algo: str = "AES-128",
+                  port: int = 161, max_rows: int = 64) -> dict:
+    """LLDP 同步入口。"""
+    return asyncio.run(
+        collect_lldp(host, username, auth_key, priv_key, auth_algo, priv_algo,
+                     port, max_rows)
     )

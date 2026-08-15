@@ -193,3 +193,66 @@ class DeviceConfigCollectOut(BaseModel):
     command: str | None = None
     truncated: bool | None = None
     error: str | None = None
+
+
+# ---- N4 网络可观测闭环 ----
+
+class InterfaceTrendPoint(BaseModel):
+    t: int  # 桶起点相对 start 的秒数
+    in_bps: float | None = None
+    out_bps: float | None = None
+    in_errors: int | None = None
+    out_errors: int | None = None
+    in_discards: int | None = None
+    out_discards: int | None = None
+    marker: str = "ok"  # ok/restart/wrap/gap
+
+
+class InterfaceTrendSeries(BaseModel):
+    interface_index: int
+    interface_name: str
+    points: list[InterfaceTrendPoint]
+    markers: dict = {}
+
+
+class InterfaceTrendOut(BaseModel):
+    interfaces: list[InterfaceTrendSeries]
+    meta: dict
+
+
+class LldpNeighborOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    device_id: int
+    local_port_index: int
+    local_port_name: str | None = None
+    remote_chassis_subtype: int | None = None
+    remote_chassis_id: str | None = None
+    remote_port_subtype: int | None = None
+    remote_port_id: str | None = None
+    remote_sysname: str | None = None
+    remote_sysdesc: str | None = None
+    first_seen: datetime | None = None
+    last_seen: datetime | None = None
+
+
+class DeviceLldpCollectOut(BaseModel):
+    device_id: int
+    status: str
+    neighbors: int = 0
+    stored: int = 0
+    error: str | None = None
+
+
+class ConfigChangeEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    device_id: int
+    snapshot_id: int
+    diff_hash: str
+    alert_key: str
+    changed_lines: int = 0
+    triggered_at: datetime
+    alert_id: int | None = None
+    resolved: bool = False
+    note: str | None = None

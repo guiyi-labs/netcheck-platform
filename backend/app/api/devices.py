@@ -16,6 +16,7 @@ from app.models.device import Device, DeviceConfigSnapshot, DeviceCredential, Sn
 from app.models.user import User
 from app.schemas.common import Response, PageData
 from app.schemas.device import (
+    ConfigChangeEventOut,
     ConfigDiffOut,
     ConfigDiffRow,
     DeviceCollectRequest,
@@ -27,10 +28,13 @@ from app.schemas.device import (
     DeviceCredentialIn,
     DeviceCredentialOut,
     DeviceIn,
+    DeviceLldpCollectOut,
     DeviceListOut,
     DeviceListResponse,
     DeviceOut,
     DeviceResponse,
+    InterfaceTrendOut,
+    LldpNeighborOut,
     SnmpInterfaceOut,
     SnmpInterfaceResponse,
 )
@@ -461,3 +465,217 @@ def diff_configs_endpoint(
         text=text,
         capped=capped,
     ))
+
+
+# ---- N4 网络可观测闭环 ----
+
+@router.get("/{device_id}/interfaces/trend")
+def interface_trend(
+    device_id: int,
+    start: str = Query(..., description="ISO 起始时间"),
+    end: str = Query(..., description="ISO 结束时间"),
+    interval: int = Query(60, ge=1, le=86400, description="聚合桶秒数"),
+    interface_index: int | None = Query(None, description="指定接口，缺省全部"),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_operator_admin),
+):
+    """N4 接口指标趋势（append-only 样本表聚合，缺样本返回 null 不补 0）。"""
+    from app.services.trend_service import (
+        MAX_TREND_SPAN_SECONDS,
+        parse_iso,
+        query_interface_trend,
+    )
+
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    from app.services.trend_service import DEFAULT_MAX_POINTS
+
+    start_dt = parse_iso(start)
+    end_dt = parse_iso(end)
+    if start_dt is None or end_dt is None:
+        raise HTTPException(status_code=400, detail="时间格式错误（示例 2026-08-15T00:00:00）")
+    from datetime import timedelta
+
+    if end_dt - start_dt > timedelta(seconds=MAX_TREND_SPAN_SECONDS):
+        raise HTTPException(status_code=400, detail=f"查询跨度超过上限 {MAX_TREND_SPAN_SECONDS//3600} 小时")
+    data = query_interface_trend(db, device_id, interface_index, start_dt, end_dt,
+                                 interval, DEFAULT_MAX_POINTS)
+    return Response(data=data)
+
+
+@router.get("/{device_id}/lldp", response_model=Response[list[LldpNeighborOut]])
+def lldp_neighbors(
+    device_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_operator_admin),
+):
+    """N4 LLDP 邻居观测列表（最近活动）。"""
+    from app.models.lldp import LldpObservation
+
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    rows = (
+        db.query(LldpObservation)
+        .filter(LldpObservation.device_id == device_id)
+        .order_by(LldpObservation.local_port_index.asc(), LldpObservation.last_seen.desc())
+        .all()
+    )
+    return Response(data=[LldpNeighborOut.model_validate(r) for r in rows])
+
+
+@router.post("/{device_id}/lldp/collect", response_model=Response[DeviceLldpCollectOut])
+def lldp_collect(
+    device_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_operator_admin),
+):
+    """N4 立即采集一次 LLDP 邻居（只读 SNMP WALK）。"""
+    from app.services.lldp_collector import collect_lldp_neighbors
+
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    if not device.snmp_config_id:
+        raise HTTPException(status_code=400, detail="设备未配置 SNMPv3 凭据")
+    result = collect_lldp_neighbors(db, device)
+    return Response(data=DeviceLldpCollectOut(
+        device_id=device_id,
+        status=result.get("status", "error"),
+        neighbors=result.get("neighbors", 0),
+        stored=result.get("stored", 0),
+        error=result.get("error"),
+    ))
+
+
+@router.get("/{device_id}/configs/events")
+def config_change_events(
+    device_id: int,
+    limit: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_operator_admin),
+):
+    """N4 配置变化事件列表（独立于巡检 run 的审计事实）。"""
+    from app.models.device import ConfigChangeEvent
+
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    rows = (
+        db.query(ConfigChangeEvent)
+        .filter(ConfigChangeEvent.device_id == device_id)
+        .order_by(ConfigChangeEvent.triggered_at.desc(), ConfigChangeEvent.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return Response(data=[ConfigChangeEventOut.model_validate(r) for r in rows])
+
+
+@router.get("/{device_id}/configs/diff/export")
+def config_diff_export(
+    device_id: int,
+    fmt: str = Query("text", pattern="^(text|excel)$"),
+    from_id: int | None = Query(None, description="缺省用倒数第二份快照"),
+    to_id: int | None = Query(None, description="缺省用最新快照"),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_operator_admin),
+):
+    """N4 配置差异导出（text / excel）。纯读操作，数据来自已持久化快照。"""
+    from fastapi.responses import PlainTextResponse, StreamingResponse
+    from io import BytesIO
+
+    from app.core.config import settings
+    from app.services.config_backup import diff_configs, format_diff_text
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    snaps = (
+        db.query(DeviceConfigSnapshot)
+        .filter(DeviceConfigSnapshot.device_id == device_id)
+        .order_by(DeviceConfigSnapshot.collected_at.desc(),
+                  DeviceConfigSnapshot.id.desc())
+        .all()
+    )
+    if len(snaps) < 2:
+        raise HTTPException(status_code=400, detail="快照不足两份，无法导出差异")
+    if to_id is not None:
+        newer = next((s for s in snaps if s.id == to_id), None)
+        if newer is None:
+            raise HTTPException(status_code=404, detail="to 快照不存在")
+    else:
+        newer = snaps[0]
+    if from_id is not None:
+        older = next((s for s in snaps if s.id == from_id), None)
+        if older is None:
+            raise HTTPException(status_code=404, detail="from 快照不存在")
+    else:
+        older = snaps[1]
+    if (older.collected_at, older.id) >= (newer.collected_at, newer.id):
+        raise HTTPException(status_code=400, detail="from 必须早于 to")
+
+    rows = diff_configs(older.config_text_redacted, newer.config_text_redacted)
+    max_rows = settings.config_diff_max_rows
+    capped = len(rows) > max_rows
+    if capped:
+        rows = rows[:max_rows]
+    text = format_diff_text(rows)
+
+    import re as _re
+
+    def _sanitize_filename(name: str) -> str:
+        safe = _re.sub(r"[^A-Za-z0-9._-]+", "_", name or "device")
+        return safe[:48] or "device"
+
+    base = f"{_sanitize_filename(device.name)}_config_diff_{older.id}_{newer.id}"
+    if fmt == "text":
+        payload = (text + ("\n[!] 差异已截断（超过上限）" if capped else "")).encode("utf-8")
+        return PlainTextResponse(
+            content=payload,
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{base}.txt"'},
+        )
+
+    # Excel：行类型着色；防公式注入（= + - @ 开头转为文本）
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "config-diff"
+    headers = ["kind", "old_line", "new_line", "text"]
+    ws.append(headers)
+    for col_idx, _ in enumerate(headers, start=1):
+        ws.cell(row=1, column=col_idx).font = Font(bold=True)
+    fill_map = {
+        "add": PatternFill(fill_type="solid", start_color="C6EFCE", end_color="C6EFCE"),
+        "del": PatternFill(fill_type="solid", start_color="FFC7CE", end_color="FFC7CE"),
+        "context": None,
+        "skip": PatternFill(fill_type="solid", start_color="D9D9D9", end_color="D9D9D9"),
+    }
+    for r in rows:
+        kind = r.get("kind", "context")
+        text_val = r.get("text", "")
+        if text_val.startswith(("=", "+", "-", "@")):
+            text_val = "'" + text_val  # 防 Excel 公式注入
+        ws.append([kind, r.get("old_line_no"), r.get("new_line_no"), text_val])
+        fill = fill_map.get(kind)
+        if fill is not None:
+            row_idx = ws.max_row
+            for col_idx in range(1, 5):
+                ws.cell(row=row_idx, column=col_idx).fill = fill
+    ws.column_dimensions["A"].width = 10
+    ws.column_dimensions["B"].width = 10
+    ws.column_dimensions["C"].width = 10
+    ws.column_dimensions["D"].width = 100
+    if capped:
+        ws.append(["skip", None, None, "[!] 差异已截断（超过上限）"])
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{base}.xlsx"'},
+    )

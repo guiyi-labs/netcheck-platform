@@ -99,6 +99,27 @@
     post: function (url, body) { return request('POST', url, body); },
     put: function (url, body) { return request('PUT', url, body); },
     del: function (url) { return request('DELETE', url, null); },
+    // 下载（blob + Content-Disposition；失败 reject）
+    download: function (url) {
+      return fetch(url, { headers: { 'Authorization': 'Bearer ' + getToken() } })
+        .then(function (resp) {
+          if (!resp.ok) throw new Error('下载失败 HTTP ' + resp.status);
+          return resp.blob();
+        })
+        .then(function (blob) {
+          var disposition = '';
+          var urlObj = new URL(url, window.location.origin);
+          var name = (urlObj.pathname.split('/').pop() || 'download') + '.bin';
+          var link = document.createElement('a');
+          link.href = URL.createObjectURL(blob);
+          link.download = name;
+          document.body.appendChild(link);
+          link.click();
+          URL.revokeObjectURL(link.href);
+          link.remove();
+          return true;
+        });
+    },
   };
 
   global.api = api;

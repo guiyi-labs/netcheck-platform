@@ -241,6 +241,9 @@
     document.getElementById('ifModalLabel').textContent = '接口指标：' + name;
     document.getElementById('if-tbody').innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">加载中...</td></tr>';
     ifModal.show();
+    // N4: 趋势 + LLDP 按钮绑定当前设备
+    document.getElementById('if-trend-btn').onclick = function () { showInterfaceTrend(deviceId, name); };
+    document.getElementById('if-lldp-btn').onclick = function () { showLldpNeighbors(deviceId, name); };
     try {
       var data = await api.get('/api/devices/' + deviceId + '/interfaces?limit=50');
       var items = data || [];
@@ -261,6 +264,94 @@
       }).join('');
     } catch (err) {
       showError(document.getElementById('if-error'), '加载接口指标失败：' + err.message);
+    }
+  }
+
+  // N4: 接口速率趋势（近 1 小时，缺样本显示空洞不补 0）
+  async function showInterfaceTrend(deviceId, name) {
+    var errEl = document.getElementById('if-error');
+    hideError(errEl);
+    try {
+      var now = new Date();
+      var from = new Date(now.getTime() - 60 * 60 * 1000);
+      function iso(d) {
+        return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) +
+          'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+      }
+      function pad2(n) { return (n < 10 ? '0' : '') + n; }
+      var url = '/api/devices/' + deviceId + '/interfaces/trend?start=' + iso(from) +
+        '&end=' + iso(now) + '&interval=60';
+      var data = await api.get(url);
+      var interfaces = data.interfaces || [];
+      if (!interfaces.length) {
+        alert('暂无趋势样本（设备尚未形成历史样本，需至少两次采集）');
+        return;
+      }
+      var xLabels = [];
+      var seriesIn = [], seriesOut = [];
+      interfaces.forEach(function (iface) {
+        seriesIn.push({ name: iface.interface_name + ' In', type: 'line', showSymbol: false,
+          connectNulls: false, data: [] });
+        seriesOut.push({ name: iface.interface_name + ' Out', type: 'line', showSymbol: false,
+          connectNulls: false, data: [] });
+      });
+      interfaces.forEach(function (iface) {
+        iface.points.forEach(function (p) {
+          var ts = new Date(from.getTime() + p.t * 1000);
+          var label = pad2(ts.getHours()) + ':' + pad2(ts.getMinutes());
+          var idx = xLabels.indexOf(label);
+          if (idx < 0) { idx = xLabels.length; xLabels.push(label); }
+          seriesIn[interfaces.indexOf(iface)].data[idx] = [label, p.in_bps];
+          seriesOut[interfaces.indexOf(iface)].data[idx] = [label, p.out_bps];
+        });
+      });
+      var opt = {
+        title: { text: '接口速率趋势（近 1 小时，bps；缺样本为断点）', left: 'center', textStyle: { fontSize: 13 } },
+        tooltip: { trigger: 'axis', valueFormatter: function (v) { return v == null ? '缺样本' : v.toFixed ? v.toFixed(0) : v; } },
+        legend: { type: 'scroll', bottom: 0 },
+        grid: { left: 60, right: 20, top: 40, bottom: 40 },
+        xAxis: { type: 'category', data: xLabels },
+        yAxis: { type: 'value', name: 'bps' },
+        series: seriesIn.concat(seriesOut),
+      };
+      if (!window.echarts) { alert('ECharts 未加载，无法展示趋势'); return; }
+      var div = document.createElement('div');
+      div.style.cssText = 'width:100%;height:300px;';
+      document.getElementById('if-tbody').innerHTML = '<tr><td colspan="7" style="padding:0;">' + div.outerHTML + '</td></tr>';
+      var chart = window.echarts.init(div);
+      chart.setOption(opt);
+    } catch (err) {
+      showError(errEl, '加载趋势失败：' + err.message);
+    }
+  }
+
+  // N4: LLDP 邻居列表（观测事实，脱敏后展示）
+  async function showLldpNeighbors(deviceId, name) {
+    var errEl = document.getElementById('if-error');
+    hideError(errEl);
+    try {
+      var neighbors = await api.get('/api/devices/' + deviceId + '/lldp');
+      if (!neighbors.length) {
+        await api.post('/api/devices/' + deviceId + '/lldp/collect', {});
+        neighbors = await api.get('/api/devices/' + deviceId + '/lldp');
+      }
+      if (!neighbors.length) {
+        document.getElementById('if-tbody').innerHTML =
+          '<tr><td colspan="7" class="empty-state"><i class="bi bi-diagram-3"></i><div>未发现 LLDP 邻居（net-snmp 需启用 LLDP 模块）</div></td></tr>';
+        return;
+      }
+      document.getElementById('if-tbody').innerHTML = neighbors.map(function (n) {
+        return '<tr>' +
+          '<td>端口 ' + escapeHtml(n.local_port_index) + '</td>' +
+          '<td>' + (n.remote_sysname ? escapeHtml(n.remote_sysname) : '<span class="text-muted">unknown</span>') + '</td>' +
+          '<td>' + escapeHtml(n.remote_port_id || '') + '</td>' +
+          '<td class="text-monospace small">' + escapeHtml(n.remote_chassis_id || '') + '</td>' +
+          '<td class="text-nowrap">' + (n.last_seen ? fmtTime(n.last_seen) : '') + '</td>' +
+          '<td>' + (n.remote_sysdesc ? '<span class="text-muted small">详情</span>' : '') + '</td>' +
+          '<td></td></tr>';
+      }).join('');
+    } catch (err) {
+      showError(errEl, '加载 LLDP 失败：' + err.message);
     }
   }
 
@@ -291,6 +382,46 @@
       showError(document.getElementById('cfg-error'), '加载配置快照失败：' + err.message);
     }
     document.getElementById('cfg-collect-btn').onclick = function () { triggerConfigCollect(deviceId); };
+    // N4: 差异导出 + 配置变化事件
+    document.getElementById('cfg-export-text').onclick = function () { exportConfigDiff(deviceId, 'text'); };
+    document.getElementById('cfg-export-excel').onclick = function () { exportConfigDiff(deviceId, 'excel'); };
+    loadConfigChangeEvents(deviceId);
+  }
+
+  // N4: 配置差异导出（纯读，数据来自已持久化快照）
+  function exportConfigDiff(deviceId, fmt) {
+    var url = '/api/devices/' + deviceId + '/configs/diff/export?fmt=' + fmt;
+    api.download(url).catch(function (err) {
+      showError(document.getElementById('cfg-error'), '导出失败：' + err.message);
+    });
+  }
+
+  // N4: 配置变化事件列表
+  async function loadConfigChangeEvents(deviceId) {
+    var tbody = document.getElementById('cfg-events-tbody');
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-2">加载中…</td></tr>';
+    try {
+      var events = await api.get('/api/devices/' + deviceId + '/configs/events');
+      var items = events || [];
+      if (!items.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-2">暂无配置变化事件</td></tr>';
+        return;
+      }
+      tbody.innerHTML = items.map(function (e) {
+        var alertBadge = e.alert_id
+          ? '<a href="alerts.html" class="badge bg-warning text-dark">#{alert_id} 已告警</a>'.replace('#{alert_id}', e.alert_id)
+          : '<span class="badge bg-secondary">未告警</span>';
+        return '<tr>' +
+          '<td>' + e.id + '</td>' +
+          '<td class="text-nowrap">' + fmtTime(e.triggered_at) + '</td>' +
+          '<td>' + e.changed_lines + '</td>' +
+          '<td class="text-monospace small">' + escapeHtml((e.diff_hash || '').substring(0, 12)) + '…</td>' +
+          '<td>' + alertBadge + (e.resolved ? '' : ' <span class="text-muted small">未解析</span>') + '</td>' +
+          '</tr>';
+      }).join('');
+    } catch (err) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-2">加载失败</td></tr>';
+    }
   }
 
   function renderConfigSnapshots(items, deviceId) {

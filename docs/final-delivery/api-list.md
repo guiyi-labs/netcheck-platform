@@ -163,3 +163,19 @@
 - `truncated`：采集输出超限截断标记
 - `changed`：与上一快照内容是否变化
 - 每台设备保留最新 `NETCHECK_CONFIG_SNAPSHOT_RETENTION`（默认 20）份
+
+### N4 网络可观测闭环（新增）
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | /api/devices/{id}/interfaces/trend | 接口指标趋势（`start`/`end` ISO 时间、`interval` 聚合桶秒、`interface_index` 可选；跨度上限 7 天；缺样本返回 null 不补 0；restart/wrap 样本带 marker） | operator/admin |
+| GET | /api/devices/{id}/lldp | LLDP 邻居观测列表（最近活动） | operator/admin |
+| POST | /api/devices/{id}/lldp/collect | 立即采集一次 LLDP 邻居（SNMPv3 只读 WALK lldpRemTable） | operator/admin |
+| GET | /api/devices/{id}/configs/events | 配置变化事件列表（`limit` 可选默认 20，N4 告警联动事实） | operator/admin |
+| GET | /api/devices/{id}/configs/diff/export | 配置差异导出（`fmt=text`\|`excel`，`from_id`/`to_id` 可选；纯读已持久化快照；Excel 公式注入防护、`capped` 明确标注、UTF-8） | operator/admin |
+
+N4 数据模型：
+- `interface_metric_samples`：append-only 时间序列样本（device_id, interface_index, collected_at, in/out_bps, in/out_errors, in/out_discards, admin/oper_status, sys_uptime, sample_marker=ok/restart/wrap, source）
+- `config_change_events`：配置变化事实（device_id, snapshot_id 唯一, diff_hash, alert_key=`device:{id}:config_change:{hash}`, changed_lines, alert_id, resolved）
+- `lldp_observations`：LLDP 邻居观测（device_id, local_port_index + remote_chassis_id + remote_port_id 唯一 upsert, remote_sysname/sysdesc, first_seen/last_seen）
+- `snmp_interface_metrics` 新增 in/out_errors、in/out_discards 列（最新值）

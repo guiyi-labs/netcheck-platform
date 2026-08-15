@@ -77,6 +77,7 @@ def init_db() -> None:
     from app.models import device as _device  # noqa: F401
     from app.models import discovery as _discovery  # noqa: F401
     from app.models import inspection as _inspection  # noqa: F401
+    from app.models import lldp as _lldp  # noqa: F401
     from app.models import report as _report  # noqa: F401
     from app.models import user as _user  # noqa: F401
     from app.models.base import Base

@@ -355,6 +355,15 @@ async def collect_config_snapshot(db: Session, device, max_bytes: int | None = N
     if result.host_key_fingerprint and device.host_key_fingerprint != result.host_key_fingerprint:
         device.host_key_fingerprint = result.host_key_fingerprint
         db.commit()
+
+    # N4：配置变化事件与告警（changed=True 且已有历史快照时才登记）
+    if changed:
+        try:
+            from app.services.config_change_alert import record_config_change_event
+            record_config_change_event(db, device, snap)
+        except Exception as exc:  # noqa: BLE001 — 事件登记失败不影响快照本身
+            logger.warning("配置变化事件登记失败 device=%s: %s", device.id, exc)
+
     return {
         "status": "ok",
         "snapshot_id": snap.id,
