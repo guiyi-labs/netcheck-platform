@@ -70,6 +70,16 @@ def _oid_in_allowlist(oid: str) -> bool:
     return False
 
 
+# USM/框架认证失败异常类型名（pysnmp 误用名称而非文本标识）
+_AUTH_FAILURE_TYPES = (
+    "authenticationerror", "wrongdigest", "unknownusername", "unknownengineid",
+    "notintimewindow", "usmerror", "authfailure",
+)
+_PRIV_FAILURE_TYPES = (
+    "priverror", "decryptionerror", "wrongdigestpriv", "encryptionerror",
+)
+
+
 def classify_error(error_indication, error_status) -> str:
     """把 pysnmp 错误映射到分类。pysnmp 返回对象或字符串。"""
     if error_indication is None:
@@ -82,9 +92,10 @@ def classify_error(error_indication, error_status) -> str:
     text = f"{name} {str(error_indication).lower()}"
     if "timedout" in text or "timeout" in text:
         return "timeout"
-    if "auth" in text:
+    # 真实 USM 异常：类名优先（WrongDigest/UnknownUserName 等）
+    if name in _AUTH_FAILURE_TYPES or "auth" in text:
         return "auth_failed"
-    if "priv" in text:
+    if name in _PRIV_FAILURE_TYPES or "priv" in text:
         return "priv_failed"
     return "error"
 

@@ -175,3 +175,31 @@ def test_snmpv3_partial_oid_unsupported_is_graceful(monkeypatch):
     result = run_snmpv3_sync("192.168.1.1", "u", "k", "k")
     assert result.status == "ok"  # 不崩溃
     assert result.facts == {}
+
+# ---------- N3 真实设备发现的 USM 认证异常分类 ----------
+
+def test_classify_wrong_digest_auth_failed():
+    """真实设备：认证密钥错误 → WrongDigest（N3 实测发现）。"""
+    from pysnmp.proto.errind import WrongDigest
+
+    assert classify_error(WrongDigest(), 0) == "auth_failed"
+
+
+def test_classify_unknown_user_auth_failed():
+    """真实设备：用户不存在 → UnknownUserName（N3 实测发现）。"""
+    from pysnmp.proto.errind import UnknownUserName
+
+    assert classify_error(UnknownUserName(), 0) == "auth_failed"
+
+
+def test_classify_not_in_time_window_auth_failed():
+    """时钟偏差 → NotInTimeWindow（N3 常见）。"""
+    from pysnmp.proto.errind import NotInTimeWindow
+
+    assert classify_error(NotInTimeWindow(), 0) == "auth_failed"
+
+
+def test_classify_unknown_engine_id_auth_failed():
+    from pysnmp.proto.errind import UnknownEngineID
+
+    assert classify_error(UnknownEngineID(), 0) == "auth_failed"

@@ -64,3 +64,32 @@
 
 `Dockerfile.lab` 与 `n1_real_verify.py` 全部凭据为文档测试值（`netcheckauth`/`netcheckpriv`/`netcheck123`/`public`），
 无真实 Secret 泄漏；`n1_mock_demo.py` 仅脱敏演示字符串。
+
+---
+
+## 增补：N3 真实网络实验与证据（2026-08-15）
+
+### 提交内容
+
+| 文件 | 变更 |
+|---|---|
+| `scripts/lab/Dockerfile.lab` | 纳入版本控制：alpine 3.22 + net-snmp 5.9.4 + openssh，createUser SHA-256，凭据 `--build-arg` 覆盖（文档测试值） |
+| `scripts/n1_real_verify.py` | 纳入版本控制：完整真实验收脚本（SNMPv3/SSH/host key/配置备份/**配置变化 diff**/命令不支持），凭据 env 覆盖，N3 diff 场景扩展 |
+| `backend/app/services/snmpv3_collector.py` | `classify_error` 识别真实 USM 异常（WrongDigest/UnknownUserName/NotInTimeWindow/UnknownEngineID）→ auth_failed（N3 实测发现） |
+| `backend/tests/test_snmpv3.py` | +4 个 USM 异常分类测试 |
+| `docs/final-delivery/n3-real-verification.md` | N3 验收记录（环境/版本/证据/边界/风险） |
+
+### 真实验收结果（2026-08-15，全部通过）
+
+SNMPv3 authPriv(SHA-256+AES-128) 采集、错误凭据→auth_failed、SSH 密码/host key 未知-匹配-不匹配、
+错误密码→auth_failed、配置备份读取 126 行+脱敏、配置变化 diff（HostKey 追加→`+HostKey ********`）、
+cisco_ios 命令不支持→cmd_not_supported。
+
+### 测试
+
+- 后端全量 `235 passed`（新增 4 个 classify_error 单测）
+- 真实容器链路全部通过（非 mock）
+
+### 未推送
+
+- 本记录对应提交未推送；本地 main 领先 origin/main 14 个提交。
