@@ -8,16 +8,17 @@
 
 | 组件 | 值 |
 |---|---|
-| 容器镜像 | `netcheck-ll-node:final`（Alpine 3.22.5, aarch64） |
+| 容器镜像 | `netcheck-ll-node:lab`（从 `scripts/lab/Dockerfile.lldp` 构建，Alpine 3.22） |
 | lldpd | lldpd-1.0.19-r0（Alpine 官方包，编译含 net-snmp AgentX 支持） |
 | net-snmp | 5.9.4-r1（snmpd 作 AgentX master，lldpd 作 AgentX subagent） |
 | 网络 | docker bridge `netcheck-ll` 172.19.0.0/16；ll-a=172.19.0.2、ll-b=172.19.0.3；veth 对 `vethB2`(ll-a) ↔ `vethA2`(ll-b) |
 | 平台后端 | `ll-api`(172.19.0.4)，FastAPI + SQLite `/tmp/n4_1.db`，backend bind-mount 最新代码 |
-| SNMPv3 凭据 | `monitor` / SHA-256 `netcheckauth` / AES-128 `netcheckpriv`（文档测试值） |
+| SNMPv3 凭据 | `monitor` / SHA-256 `netcheckauth` / AES-128 `netcheckpriv`（文档测试值；可通过环境变量注入覆盖） |
 | 数据采集 | `snmpwalk -v3 -l authPriv` 于容器内（net-snmp 5.9.4 支持 SHA-256） |
 
-复现脚本：`scripts/lab/lldp-node.sh`（容器 entry）；veth 接线用 privileged helper
-`docker run --rm --privileged --pid=host --net=host alpine:3.22` + `nsenter`。
+一键可复现：`scripts/lab/lldp-lab.sh`（build → up → verify → down 编排）。
+凭据默认文档测试值，可通过 `SNMP_USER`/`SNMP_AUTH_KEY`/`SNMP_PRIV_KEY` 环境变量
+运行时注入覆盖（不固化自定义口令进镜像）。
 
 ### 关键启动约束（真实 lldpd 实测，源码 + 运行确认）
 
@@ -67,6 +68,29 @@ iso.0.8802.1.1.2.1.4.1.1.9.150100.1172.1 = STRING: "<ll-a-hostname>"
 - 验证：邻居不变时 time_mark 随 LLDP tx 周期变化（2500 → 5500 → …）；它
   不随当前 sysUpTime 单调递增（stable 时保持在最后一次变更时刻附近）。
 - 采集器因此**原样保留 tick**，不做时间换算，DB 记录 `lldp_time_mark`。
+
+### 一键复现运行记录（lldp-lab.sh）
+
+`scripts/lab/lldp-lab.sh`（build → up → verify → down）实测输出（脱敏）：
+
+```text
+[lldp-lab] 构建镜像 netcheck-ll-node:lab ...（Dockerfile.lldp，Alpine 3.22）
+[lldp-lab] 创建 bridge netcheck-ll (172.19.0.0/16)
+[lldp-lab] 启动 ll-a / ll-b（--ip 172.19.0.2 / 172.19.0.3）
+[lldp-lab] veth 互联（ll-a ↔ ll-b）
+[lldp-lab] 等待 LLDP 发现（~25s）
+[lldp-lab] === ll-a view (expect ll-b) ===
+iso.0.8802.1.1.2.1.4.1.1.9.<tm>.<port>.1 = STRING: "<hostname>"
+iso.0.8802.1.1.2.1.4.1.1.4.<tm>.<port>.1 = INTEGER: 4
+iso.0.8802.1.1.2.1.4.1.1.6.<tm>.<port>.1 = INTEGER: 5
+[lldp-lab] === ll-b view (expect ll-a) ===  （对称，INTEGER: 4 / 5）
+[lldp-lab] VERIFY OK：双向 SNMPv3 authPriv LLDP WALK 通过（lldpd 布局 1.4.1.1）
+[lldp-lab] remove ll-a / ll-b and bridge netcheck-ll（镜像保留）
+```
+
+断言逻辑：sysname 列非空、chassis_subtype=4、port_subtype=5；MAC/主机名脱敏后输出。
+同场景也复核了网页 AI 建议（标准 lldpRemTable `1.3.7.1`）——真实 lldpd 的远端表
+实际注册在 `1.4.1.1`（列 4..12），采集器对两者均兼容。
 
 ## 3. 采集器布局适配（本次变更）
 

@@ -15,13 +15,21 @@ set -e
 
 mkdir -p /run/lldpd /run/snmpd
 
+# SNMPv3 凭据：默认使用文档测试值；可通过环境变量覆盖（运行时注入，
+# 不进镜像固定 Secret）。必须与采集端一致（authPriv，SHA-256/AES-128）。
+SNMP_USER="${SNMP_USER:-monitor}"
+SNMP_AUTH_ALGO="${SNMP_AUTH_ALGO:-SHA-256}"
+SNMP_AUTH_KEY="${SNMP_AUTH_KEY:-netcheckauth}"
+SNMP_PRIV_ALGO="${SNMP_PRIV_ALGO:-AES}"
+SNMP_PRIV_KEY="${SNMP_PRIV_KEY:-netcheckpriv}"
+
 # snmpd：AgentX master + SNMPv3 用户（SHA-256/AES-128，与平台采集器一致）
-cat > /etc/snmp/snmpd.conf <<'SNMP'
+cat > /etc/snmp/snmpd.conf <<SNMP
 master agentx
 agentXSocket /run/lldpd/agentx.sock
 rocommunity public 127.0.0.1
-createUser monitor SHA-256 netcheckauth AES netcheckpriv
-rouser monitor priv
+createUser ${SNMP_USER} ${SNMP_AUTH_ALGO} ${SNMP_AUTH_KEY} ${SNMP_PRIV_ALGO} ${SNMP_PRIV_KEY}
+rouser ${SNMP_USER} priv
 sysLocation lab
 sysContact test
 SNMP

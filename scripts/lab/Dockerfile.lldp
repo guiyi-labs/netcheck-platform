@@ -1,0 +1,22 @@
+# LLDP 实验节点镜像（N4.1 两节点真实 LLDP 环境）
+#
+# 说明：本镜像用于本地可复现的 LLDP 实验室——snmpd 作为 AgentX master、
+# lldpd 作为 AgentX subagent，在 docker bridge 内互相发现并暴露真实
+# LLDP-MIB（lldpd 布局 1.0.8802.1.1.2.1.4.1.1 列 4..12）。凭据默认文档测试值，
+# 可由环境变量在运行时注入覆盖（不固化自定义口令）。
+#
+# 构建：docker build -f scripts/lab/Dockerfile.lldp -t netcheck-ll-node:lab scripts/lab/
+# 使用：scripts/lab/lldp-lab.sh（up → verify → down 编排）
+#
+# 与 Dockerfile.lab（N1/N2 路由器镜像）的差异：
+#   - 增加 lldpd（AgentX subagent），snmpd 仅作 AgentX master + SNMPv3 用户；
+#   - 不做 SSH；无 host key 相关配置。
+ARG ALPINE_TAG=3.22
+FROM alpine:${ALPINE_TAG}
+
+RUN apk add --no-cache lldpd net-snmp net-snmp-tools
+
+COPY lldp-node.sh /lldp-entry.sh
+RUN chmod +x /lldp-entry.sh
+
+ENTRYPOINT ["sh", "/lldp-entry.sh"]

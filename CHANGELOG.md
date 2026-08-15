@@ -6,12 +6,19 @@
 - **N4.1 LLDP 真实 WALK 验收**：两节点 lldpd 1.0.19 / net-snmp 5.9.4
   Alpine 3.22 容器实验环境，SNMPv3 authPriv 真实 WALK 远端 LLDP-MIB
   证据（`1.0.8802.1.1.2.1.4.1.1` lldpd 布局列 4..12）。
+- `scripts/lab/Dockerfile.lldp`：LLDP 实验节点镜像（lldpd AgentX subagent
+  + snmpd AgentX master），凭据运行时注入（环境变量覆盖，不固化 Secret）。
+- `scripts/lab/lldp-lab.sh`：**可复现 up → verify → down 一键编排**——构建
+  镜像、创建 bridge、启动 ll-a/ll-b、veth 互联、等待 LLDP、双向 SNMPv3
+  authPriv WALK 断言（sysname 非空 + chassis_subtype=4 + port_subtype=5，
+  输出脱敏）、拆除清理（镜像保留）。
 - `scripts/lab/lldp-node.sh`：LLDP 节点 entry 脚本（snmpd AgentX
   master + lldpd AgentX subagent），修正 `-d` 无参 getopt 问题、
-  socket 路径为 chroot 内可见全路径、快速 tx interval 5s + tx-hold 2。
+  socket 路径为 chroot 内可见全路径、快速 tx interval 5s + tx-hold 2；
+  凭据支持 `SNMP_USER`/`SNMP_AUTH_KEY`/`SNMP_PRIV_KEY` 环境变量注入。
 - `docs/final-delivery/n4-lldp-real-verification.md`：N4.1 真实 WALK
-  验收记录，含版本证据、WALK 摘要（脱敏）、平台全路径验证矩阵、
-  mock vs 真实边界复核。
+  验收记录，含版本证据、WALK 摘要（脱敏）、一键复现输出、平台全路径
+  验证矩阵、mock vs 真实边界复核。
 
 ### Changed
 - `backend/app/services/snmpv3_collector.py`：
