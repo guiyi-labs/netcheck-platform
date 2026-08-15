@@ -51,6 +51,16 @@ def require_write(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+def require_operator_admin(current_user: User = Depends(get_current_user)) -> User:
+    """敏感配置内容读取依赖：仅 operator / admin 可读（N2.1 P1）。"""
+    if current_user.role == "viewer":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="查看者无权读取敏感配置内容",
+        )
+    return current_user
+
+
 def require_admin(current_user: User = Depends(get_current_user)) -> User:
     """用户管理、系统配置等仅管理员可执行。"""
     if current_user.role != "admin":

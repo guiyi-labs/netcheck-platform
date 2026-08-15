@@ -305,7 +305,7 @@
         '<td class="text-nowrap">' + fmtTime(s.collected_at) + '</td>' +
         '<td class="text-monospace small" title="' + escapeHtml(s.config_full_hash) + '">' +
           escapeHtml((s.config_full_hash || '').substring(0, 12)) + '…</td>' +
-        '<td>' + escapeHtml(s.source) + '</td>' +
+        '<td>' + escapeHtml(s.source) + (s.truncated ? ' <span class="badge bg-danger">超限截断</span>' : '') + '</td>' +
         '<td>' + (s.changed ? '<span class="badge bg-warning text-dark">已变更</span>'
           : '<span class="badge bg-secondary">基准</span>') + '</td>' +
         '</tr>';
@@ -318,12 +318,14 @@
     if (!d) { meta.textContent = '无可对比数据'; el.textContent = ''; return; }
     meta.textContent = (d.from_collected_at ? fmtTime(d.from_collected_at) : d.from_snapshot_id) +
       ' → ' + (d.to_collected_at ? fmtTime(d.to_collected_at) : d.to_snapshot_id) +
-      (d.changed ? '  变更' : '  相同');
+      (d.changed ? '  变更' : '  相同') +
+      (d.capped ? '  ⚠️结果已截断' : '');
     el.textContent = d.text || '(无差异)';
     // 给 diff 行着色
     el.innerHTML = (d.text || '').split('\n').map(function (line) {
       if (line.startsWith('+')) return '<span class="text-success">' + escapeHtml(line) + '</span>';
       if (line.startsWith('-')) return '<span class="text-danger">' + escapeHtml(line) + '</span>';
+      if (line.startsWith('~')) return '<span class="text-muted">' + escapeHtml(line) + '</span>';
       return escapeHtml(line);
     }).join('\n');
   }

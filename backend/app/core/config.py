@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     ssh_max_output_bytes: int = 524288
     # 单次批量采集设备数上限
     device_collect_max_batch: int = 8
+    # 配置快照保留上限（N2.1 P1）：每台设备保留最新 N 份，超出清理最旧
+    config_snapshot_retention: int = 20
+    # 配置 diff 查询上限（N2.1 P1）：最大返回上下文行数与总行数
+    config_diff_max_rows: int = 2000
+    config_diff_context_lines: int = 3
 
     # ---- 其他 ----
     log_level: str = "INFO"

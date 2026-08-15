@@ -422,27 +422,32 @@ class TestConfigBoundedness:
     """配置采集有界性：max_bytes 截断，超长配置不落库。"""
 
     def test_max_bytes_truncates_output(self):
-        """_collect_config_ssh 对超长输出按 max_bytes 截断。"""
+        """_collect_config_ssh 对超长输出按 max_bytes 截断，标记 truncated。"""
         import app.services.config_backup as cb_mod
         from app.services.config_backup import _collect_config_ssh
 
-        # 注入一个返回长输出的假 transport
-        long_output = ("x" * 200)
+        long_output = b"x" * 200  # 200 字节
+
+        class _FakeOut:
+            def __init__(self, data: bytes):
+                self._data = data
+            def read(self, size=-1):
+                if not self._data:
+                    return b""
+                if size < 0 or size >= len(self._data):
+                    chunk = self._data
+                    self._data = b""
+                    return chunk
+                chunk = self._data[:size]
+                self._data = self._data[size:]
+                return chunk
 
         class _FakeTransport:
-            def __init__(self):
-                self.captured_part = ""
-
             async def connect(self, host, port, username, password, pkey, policy):
                 policy.captured = "fp"
                 return self
-
             def exec_command(self, cmd, timeout=None):
-                class _Out:
-                    def read(self):
-                        return long_output.encode()
-                return None, _Out(), None
-
+                return None, _FakeOut(long_output), _FakeOut(b"")
             def close(self):
                 pass
 
@@ -454,8 +459,8 @@ class TestConfigBoundedness:
                 password=None, key_pem=None, vendor="linux",
                 host_key_fingerprint=None, max_bytes=50))
             assert res.status == "ok"
-            assert len(res.full_text) == 50  # 被截断到 50 字节
-            assert len(res.redacted) <= 50
+            assert len(res.full_text.encode("utf-8", errors="replace")) <= 50
+            assert res.truncated is True
         finally:
             cb_mod._transport_factory = original_factory
 
@@ -464,19 +469,28 @@ class TestConfigBoundedness:
         import app.services.config_backup as cb_mod
         from app.services.config_backup import _collect_config_ssh
 
-        huge = ("z" * 1_000_000)
+        huge = b"z" * 1_000_000
+
+        class _FakeOut:
+            def __init__(self, data: bytes):
+                self._data = data
+            def read(self, size=-1):
+                if not self._data:
+                    return b""
+                if size < 0 or size >= len(self._data):
+                    chunk = self._data
+                    self._data = b""
+                    return chunk
+                chunk = self._data[:size]
+                self._data = self._data[size:]
+                return chunk
 
         class _FakeTransport:
             async def connect(self, host, port, username, password, pkey, policy):
                 policy.captured = "fp"
                 return self
-
             def exec_command(self, cmd, timeout=None):
-                class _Out:
-                    def read(self):
-                        return huge.encode()
-                return None, _Out(), None
-
+                return None, _FakeOut(huge), _FakeOut(b"")
             def close(self):
                 pass
 
@@ -488,6 +502,92 @@ class TestConfigBoundedness:
                 password=None, key_pem=None, vendor="linux",
                 host_key_fingerprint=None, max_bytes=1024))
             assert res.status == "ok"
-            assert len(res.full_text) == 1024
+            assert len(res.full_text.encode("utf-8", errors="replace")) <= 1024
+            assert res.truncated is True
+        finally:
+            cb_mod._transport_factory = original_factory
+
+    def test_multibyte_utf8_truncated_at_boundary(self):
+        """多字节 UTF-8 文本在字节边界截断，不产生乱码。"""
+        import app.services.config_backup as cb_mod
+        from app.services.config_backup import _collect_config_ssh
+
+        # 中文每字符 3 字节 UTF-8；50 字节 = 16 个中文 + 2 个余字节（截断到 15 个完整字符 = 45 字节）
+        multibyte = "测" * 20  # 60 字节
+
+        class _FakeOut:
+            def __init__(self, data: bytes):
+                self._data = data
+            def read(self, size=-1):
+                if not self._data:
+                    return b""
+                if size < 0 or size >= len(self._data):
+                    chunk = self._data
+                    self._data = b""
+                    return chunk
+                chunk = self._data[:size]
+                self._data = self._data[size:]
+                return chunk
+
+        class _FakeTransport:
+            async def connect(self, host, port, username, password, pkey, policy):
+                policy.captured = "fp"
+                return self
+            def exec_command(self, cmd, timeout=None):
+                return None, _FakeOut(multibyte.encode("utf-8")), _FakeOut(b"")
+            def close(self):
+                pass
+
+        original_factory = cb_mod._transport_factory
+        cb_mod._transport_factory = _FakeTransport()
+        try:
+            res = asyncio.run(_collect_config_ssh(
+                host="10.0.0.1", port=22, username="root",
+                password=None, key_pem=None, vendor="linux",
+                host_key_fingerprint=None, max_bytes=50))
+            assert res.status == "ok"
+            # 45 字节 = 15 个完整字符（45 < 50）
+            byte_len = len(res.full_text.encode("utf-8", errors="replace"))
+            assert byte_len <= 50
+            assert byte_len > 0
+            assert res.truncated is True
+            # 确保不是截断的乱码：decode 不应抛 UnicodeDecodeError
+            res.full_text.encode("utf-8").decode("utf-8")  # 不报错
+        finally:
+            cb_mod._transport_factory = original_factory
+
+    def test_untruncated_not_marked(self):
+        """未超限内容 truncated=False。"""
+        from app.services.config_backup import _collect_config_ssh, ConfigCollectResult
+        import app.services.config_backup as cb_mod
+
+        class _FakeOut:
+            def __init__(self, data: bytes):
+                self._data = data
+            def read(self, size=-1):
+                if not self._data:
+                    return b""
+                chunk = self._data
+                self._data = b""
+                return chunk
+
+        class _FakeTransport:
+            async def connect(self, host, port, username, password, pkey, policy):
+                policy.captured = "fp"
+                return self
+            def exec_command(self, cmd, timeout=None):
+                return None, _FakeOut(b"short"), _FakeOut(b"")
+            def close(self):
+                pass
+
+        original_factory = cb_mod._transport_factory
+        cb_mod._transport_factory = _FakeTransport()
+        try:
+            res = asyncio.run(_collect_config_ssh(
+                host="10.0.0.1", port=22, username="root",
+                password=None, key_pem=None, vendor="linux",
+                host_key_fingerprint=None, max_bytes=1024))
+            assert res.status == "ok"
+            assert res.truncated is False
         finally:
             cb_mod._transport_factory = original_factory

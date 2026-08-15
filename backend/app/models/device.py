@@ -6,7 +6,7 @@
 """
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Float, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Float, func, UniqueConstraint
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -212,14 +212,23 @@ class SnmpInterfaceMetric(Base):
 
 
 class DeviceConfigSnapshot(Base):
-    """N2 配置快照：备份设备只读配置（脱敏后存储 + 全文哈希去重）。
+    """N2 配置快照：备份设备只读配置（脱敏后存储 + 内容哈希去重）。
 
-    - config_full_hash: 全文 SHA-256（用于去重与变更检测，不保存明文）
-    - config_text_redacted: 脱敏后的配置文本（password/secret/community/key 值已遮蔽）
+    - config_full_hash: 内容 SHA-256（用于去重与变更检测，不保存明文）
+    - config_text_redacted: 脱敏后的配置文本（password/secret/community/key/PEM 已遮蔽）
+    - truncated: 采集时输出超限未读取完整内容（hash 仅代表已读部分）
     - 同内容配置不重复入库，仅当 hash 变化才产生新快照
+    - (device_id, config_full_hash) 唯一约束保证并发去重安全
     """
 
     __tablename__ = "device_config_snapshots"
+    __table_args__ = (
+        # 并发去重：DB 级唯一约束，冲突时快速失败（N2.1 P1）
+        UniqueConstraint(
+            "device_id", "config_full_hash",
+            name="uq_device_config_hash",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
@@ -228,4 +237,5 @@ class DeviceConfigSnapshot(Base):
     config_text_redacted: Mapped[str] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(32), default="ssh")  # ssh / manual
     changed: Mapped[bool] = mapped_column(default=False)  # 与上一快照相比是否变化
+    truncated: Mapped[bool] = mapped_column(default=False)  # 输出超限标记（N2.1）
     collected_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)

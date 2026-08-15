@@ -137,3 +137,29 @@
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | /api/topology | 获取逻辑拓扑节点和链路 |
+
+## 网络设备（N1 采集 + N2 配置备份）
+
+| 方法 | 路径 | 说明 | 权限 |
+|---|---|---|---|
+| GET | /api/devices | 设备分页列表 | 登录 |
+| POST | /api/devices | 新增设备 | operator/admin |
+| GET | /api/devices/{id} | 设备详情 | 登录 |
+| PUT | /api/devices/{id} | 更新设备 | operator/admin |
+| DELETE | /api/devices/{id} | 删除设备（级联清理采集指标与配置快照） | operator/admin |
+| POST | /api/devices/credentials | 新建凭据（AES-256-GCM 加密存储） | admin |
+| GET | /api/devices/credentials | 凭据列表（仅返回摘要，不含明文） | admin |
+| DELETE | /api/devices/credentials/{id} | 删除凭据 | admin |
+| POST | /api/devices/collect | 批量触发采集（SNMPv3 + SSH） | operator/admin |
+| GET | /api/devices/{id}/snmp/interface | 接口指标（速率等） | 登录 |
+| POST | /api/devices/{id}/configs/collect | 触发配置备份采集（同步） | operator/admin |
+| GET | /api/devices/{id}/configs | 配置快照元数据列表（hash/时间/source/truncated/changed） | 登录 |
+| GET | /api/devices/{id}/configs/latest | 最新配置脱敏全文 | operator/admin（viewer 403） |
+| GET | /api/devices/{id}/configs/diff | 快照 diff（`from_snapshot_id`/`to_snapshot_id`/`context_lines` 可选；行数超 `config_diff_max_rows` 标记 `capped`；`from` 必须早于 `to`） | operator/admin（viewer 403） |
+
+配置快照模型（`device_config_snapshots`）：
+- `config_full_hash`：内容 SHA-256（truncated 时代表已读部分；唯一约束 `(device_id, config_full_hash)`）
+- `config_text_redacted`：脱敏文本（密钥行/PEM 私钥块/crypto isakmp key/WireGuard）
+- `truncated`：采集输出超限截断标记
+- `changed`：与上一快照内容是否变化
+- 每台设备保留最新 `NETCHECK_CONFIG_SNAPSHOT_RETENTION`（默认 20）份

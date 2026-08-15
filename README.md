@@ -148,10 +148,15 @@ N1 新增网络设备只读采集链路（`frontend/devices.html` → `/api/devi
 
 N2 新增只读配置备份与差异（`/api/devices/{id}/configs/*`）：
 
-- **配置采集**：复用 SSH 只读通道，从 `CONFIG_READ_COMMANDS` allowlist 读取配置；
-- **脱敏存储**：密钥行值替换为 `********`，仅存 SHA-256 全文哈希（去重/变更检测），不保存明文密钥；
-- **差异对比**：相邻快照行级 unified diff，前端红绿着色展示新增/删除行；
-- **变更审计**：配置变化自动标记并写入 `OperationLog`（action = `device_config_backup`）。
+- **配置采集**：复用 SSH 只读通道，从 `CONFIG_READ_COMMANDS` allowlist 读取配置；**SSH 密码已解密后实时传入采集器**（auth_key_encrypted → password）；
+- **流式有界读取**：stdout/stderr 读取阶段按 `ssh_max_output_bytes` 字节上限截断（禁止先读全量再截断），截断按字节计数并保持 UTF-8 完整字符边界；截断后响应显式标记 `truncated: true`，哈希为已读部分内容哈希（非完整配置哈希）；
+- **脱敏存储**：密钥行值替换为 `********`；**PEM 私钥块**（RSA/EC/OPENSSH，含 BEGIN/END 头尾）多行状态机遮蔽；`crypto isakmp key`、WireGuard `PrivateKey`/`PresharedKey` 覆盖；缩进行正确处理；非密钥行（接口名、描述、路由、BGP）不误伤；仅存内容 SHA-256 哈希（去重/变更检测），不保存明文密钥；
+- **DB 去重**：`(device_id, config_full_hash)` 唯一约束；并发写冲突快速失败回退为 unchanged；
+- **保留上限**：每台设备最多保留 `config_snapshot_retention`（默认 20）份快照，超出自动清理最旧；
+- **设备删除级联**：删除设备时级联清理 `device_config_snapshots` 关联快照；
+- **权限控制**：配置全文（latest）与 diff 要求 operator/admin（viewer 403）；快照元数据列表（hash/时间）要求登录；
+- **差异对比**：相邻快照行级 unified diff，支持 `context_lines`（每侧保留上下文行数）；diff 结果有 `config_diff_max_rows`（默认 2000）行上限，超出标记 `capped: true`；`from` 必须早于 `to`（按时间+ID 排序）；
+- **变更审计**：配置变化自动标记并写入 `OperationLog`（action = `device_config_backup`，含 truncated 标记）；审计日志与快照写入为独立事务（审计失败不影响快照）。
 
 实验入口：`./scripts/n1-lab.sh mock`（确定性 mock 演示）｜ `lab-up`（containerlab/FRRouting 实验）。
 凭据/采集配置：`.env.example` 中 `NETCHECK_*` N1 段。

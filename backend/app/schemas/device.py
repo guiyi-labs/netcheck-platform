@@ -136,7 +136,7 @@ class SnmpInterfaceResponse(Response[list[SnmpInterfaceOut]]):
 # ---- N2 配置快照与差异 ----
 
 class DeviceConfigSnapshotOut(BaseModel):
-    """配置快照元信息（不含原始文本内容哈希即可）。"""
+    """配置快照元信息（不含原始文本内容）。"""
     model_config = ConfigDict(from_attributes=True)
     id: int
     device_id: int
@@ -144,6 +144,7 @@ class DeviceConfigSnapshotOut(BaseModel):
     config_full_hash: str
     source: str
     changed: bool
+    truncated: bool = False
     collected_at: datetime
 
 
@@ -156,11 +157,12 @@ class DeviceConfigTextOut(BaseModel):
     config_text_redacted: str
     source: str
     changed: bool
+    truncated: bool = False
     collected_at: datetime
 
 
 class ConfigDiffRow(BaseModel):
-    kind: str  # add / del / context
+    kind: str  # add / del / context / skip（省略标记）
     old_line_no: int | None = None
     new_line_no: int | None = None
     text: str
@@ -174,7 +176,8 @@ class ConfigDiffOut(BaseModel):
     to_collected_at: datetime
     changed: bool
     rows: list[ConfigDiffRow]
-    text: str = ""  # 统一格式 diff（展示用）
+    text: str = ""           # 统一格式 diff（展示用，最多返回 diff_max_rows 行）
+    capped: bool = False     # 结果已截断（超过 diff_max_rows 限制）
 
 
 class DeviceConfigCollectIn(BaseModel):
@@ -188,4 +191,5 @@ class DeviceConfigCollectOut(BaseModel):
     changed: bool | None = None
     hash: str | None = None
     command: str | None = None
+    truncated: bool | None = None
     error: str | None = None

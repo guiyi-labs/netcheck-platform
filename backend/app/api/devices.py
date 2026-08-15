@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_write, require_admin
+from app.core.deps import get_current_user, require_operator_admin, require_write, require_admin
 from app.models.device import Device, DeviceConfigSnapshot, DeviceCredential, SnmpInterfaceMetric
 from app.models.user import User
 from app.schemas.common import Response, PageData
@@ -237,9 +237,12 @@ def delete_device(
     device = db.query(Device).filter(Device.id == device_id).first()
     if device is None:
         raise HTTPException(status_code=404, detail="设备不存在")
-    # 清理关联指标
+    # 清理关联指标与配置快照（N2.1 P1：级联/清理策略）
     db.query(SnmpInterfaceMetric).filter(
         SnmpInterfaceMetric.device_id == device_id
+    ).delete()
+    db.query(DeviceConfigSnapshot).filter(
+        DeviceConfigSnapshot.device_id == device_id
     ).delete()
     db.delete(device)
     db.commit()
@@ -310,16 +313,17 @@ def list_config_snapshots(
 def get_latest_config(
     device_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_operator_admin),
 ) -> Response[DeviceConfigTextOut]:
-    """获取最新配置快照（脱敏文本）。无快照返回 404。"""
+    """获取最新配置快照（脱敏文本）。无快照返回 404。仅 operator/admin 可读。"""
     device = db.query(Device).filter(Device.id == device_id).first()
     if device is None:
         raise HTTPException(status_code=404, detail="设备不存在")
     snap = (
         db.query(DeviceConfigSnapshot)
         .filter(DeviceConfigSnapshot.device_id == device_id)
-        .order_by(DeviceConfigSnapshot.collected_at.desc())
+        .order_by(DeviceConfigSnapshot.collected_at.desc(),
+                  DeviceConfigSnapshot.id.desc())
         .first()
     )
     if snap is None:
@@ -332,6 +336,7 @@ def get_latest_config(
         config_text_redacted=snap.config_text_redacted,
         source=snap.source,
         changed=snap.changed,
+        truncated=snap.truncated,
         collected_at=snap.collected_at,
     ))
 
@@ -357,6 +362,8 @@ def trigger_config_collect(
         detail += f" sha256={result['hash'][:8]}"
     if result.get("changed"):
         detail += " changed=True"
+    if result.get("truncated"):
+        detail += " truncated=True"
     audit = OperationLog(
         username=current_user.username,
         action="device_config_backup",
@@ -373,6 +380,7 @@ def trigger_config_collect(
         changed=result.get("changed"),
         hash=result.get("hash"),
         command=result.get("command"),
+        truncated=result.get("truncated"),
         error=result.get("error"),
     ))
 
@@ -382,17 +390,23 @@ def diff_configs_endpoint(
     device_id: int,
     from_snapshot_id: int | None = Query(None),
     to_snapshot_id: int | None = Query(None),
+    context_lines: int = Query(3, ge=0, le=50, description="上下文行数（每侧）"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_operator_admin),
 ) -> Response[ConfigDiffOut]:
-    """对比两个配置快照。默认对比最新两份；可显式 from/to。"""
+    """对比两个配置快照。默认对比最新两份；可显式 from/to。
+
+    diff 行数上限：settings.config_diff_max_rows（默认 2000），超出标记 capped=True。
+    from 必须早于 to（按时间），否则 400。仅 operator/admin 可读。
+    """
     device = db.query(Device).filter(Device.id == device_id).first()
     if device is None:
         raise HTTPException(status_code=404, detail="设备不存在")
     q = (
         db.query(DeviceConfigSnapshot)
         .filter(DeviceConfigSnapshot.device_id == device_id)
-        .order_by(DeviceConfigSnapshot.collected_at.desc())
+        .order_by(DeviceConfigSnapshot.collected_at.desc(),
+                  DeviceConfigSnapshot.id.desc())
     )
     snaps = q.limit(50).all()
     if not snaps:
@@ -412,8 +426,29 @@ def diff_configs_endpoint(
     else:
         raise HTTPException(status_code=400, detail="快照不足两份，无法对比")
 
-    rows = diff_configs(older.config_text_redacted, newer.config_text_redacted)
+    # 时间窗校验：from 必须早于 to（按 (collected_at, id) 排序）
+    def _order_key(s):
+        return (s.collected_at, s.id)
+
+    if _order_key(older) >= _order_key(newer):
+        raise HTTPException(status_code=400, detail="from 必须早于 to（按时间）")
+
+    rows = diff_configs(older.config_text_redacted, newer.config_text_redacted,
+                        context_lines=context_lines)
     from app.services.config_backup import format_diff_text
+    from app.core.config import settings
+
+    max_rows = settings.config_diff_max_rows
+    capped = len(rows) > max_rows
+    if capped:
+        rows = rows[:max_rows]
+    text = format_diff_text(rows)
+    # 行数限制
+    text_lines = text.splitlines()
+    if len(text_lines) > max_rows:
+        text_lines = text_lines[:max_rows]
+        text = "\n".join(text_lines)
+        capped = True
 
     return Response(data=ConfigDiffOut(
         device_id=device_id,
@@ -423,5 +458,6 @@ def diff_configs_endpoint(
         to_collected_at=newer.collected_at,
         changed=older.config_full_hash != newer.config_full_hash,
         rows=[ConfigDiffRow(**r) for r in rows],
-        text=format_diff_text(rows),
+        text=text,
+        capped=capped,
     ))
