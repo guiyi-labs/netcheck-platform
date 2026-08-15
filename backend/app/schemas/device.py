@@ -145,6 +145,7 @@ class DeviceConfigSnapshotOut(BaseModel):
     source: str
     changed: bool
     truncated: bool = False
+    is_baseline: bool = False
     collected_at: datetime
 
 
@@ -158,6 +159,7 @@ class DeviceConfigTextOut(BaseModel):
     source: str
     changed: bool
     truncated: bool = False
+    is_baseline: bool = False
     collected_at: datetime
 
 
@@ -178,6 +180,24 @@ class ConfigDiffOut(BaseModel):
     rows: list[ConfigDiffRow]
     text: str = ""           # 统一格式 diff（展示用，最多返回 diff_max_rows 行）
     capped: bool = False     # 结果已截断（超过 diff_max_rows 限制）
+
+
+class ComplianceReportOut(BaseModel):
+    """配置合规报告：最新快照 vs 基线（行级 diff）。
+
+    粒度如实标注：行级 diff（非语义级）。
+    """
+    device_id: int
+    baseline_id: int | None = None
+    baseline_collected_at: datetime | None = None
+    current_id: int | None = None
+    current_collected_at: datetime | None = None
+    total_rules: int = 0
+    passed: int = 0
+    failed: int = 0
+    changed_lines: list[ConfigDiffRow] = []
+    status: str = "warn"       # pass / warn / fail
+    status_detail: str = ""
 
 
 class DeviceConfigCollectIn(BaseModel):

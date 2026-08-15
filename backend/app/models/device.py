@@ -259,6 +259,7 @@ class DeviceConfigSnapshot(Base):
     source: Mapped[str] = mapped_column(String(32), default="ssh")  # ssh / manual
     changed: Mapped[bool] = mapped_column(default=False)  # 与上一快照相比是否变化
     truncated: Mapped[bool] = mapped_column(default=False)  # 输出超限标记（N2.1）
+    is_baseline: Mapped[bool] = mapped_column(default=False)  # 合规基线标记（同设备唯一）
     collected_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
 
 

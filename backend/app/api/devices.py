@@ -16,6 +16,7 @@ from app.models.device import Device, DeviceConfigSnapshot, DeviceCredential, Sn
 from app.models.user import User
 from app.schemas.common import Response, PageData
 from app.schemas.device import (
+    ComplianceReportOut,
     ConfigChangeEventOut,
     ConfigDiffOut,
     ConfigDiffRow,
@@ -465,6 +466,46 @@ def diff_configs_endpoint(
         text=text,
         capped=capped,
     ))
+
+
+# ---- N2.2 配置合规基线（行级 diff 粒度，非语义级） ----
+
+@router.post("/{device_id}/configs/{snapshot_id}/baseline")
+def set_config_baseline(
+    device_id: int,
+    snapshot_id: int,
+    enabled: bool = Query(True, description="True=标记为基线，False=取消基线"),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_operator_admin),
+) -> Response[DeviceConfigSnapshotOut]:
+    """标记/取消某快照为设备的合规基线。同设备仅允许一个基线（行级 diff 粒度）。"""
+    from app.services.compliance import set_baseline
+
+    snapshot = set_baseline(db, device_id, snapshot_id, enabled=enabled)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="设备或快照不存在")
+    return Response(data=DeviceConfigSnapshotOut.model_validate(snapshot))
+
+
+@router.get("/{device_id}/configs/compliance", response_model=Response[ComplianceReportOut])
+def config_compliance_report(
+    device_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_operator_admin),
+) -> Response[ComplianceReportOut]:
+    """合规报告：最新快照 vs 基线（行级 diff，粒度如实标注）。
+
+    合规判定：changed_lines=0 → pass；≤10 → warn；>10 → fail。
+    """
+    from app.services.compliance import get_compliance_report
+
+    device = db.query(Device).filter(Device.id == device_id).first()
+    if device is None:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    report = get_compliance_report(db, device_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    return Response(data=ComplianceReportOut(**report))
 
 
 # ---- N4 网络可观测闭环 ----
