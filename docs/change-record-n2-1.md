@@ -36,3 +36,31 @@
 ## 未推送
 
 - 本记录对应提交未推送（`origin/main` 仍为旧基线）。推送前需权限确认。
+---
+
+## 增补：N3 前置门禁（实验 Secret 与可复现环境检查，2026-08-14）
+
+### 提交内容（本批）
+
+| 文件 | 变更 |
+|---|---|
+| `docs/operations/n1-lab.md`（新） | 消除 `scripts/n1-lab.sh` 断链：Docker bridge 网络 + Docker DNS 可复现启动方式（构建/网络/冒烟/完整验证/清理/归档要求），标注凭据为文档测试值 |
+
+### 工作树修复（未提交，另属 Agent 归属待确认）
+
+| 文件 | 修复 |
+|---|---|
+| `scripts/lab/Dockerfile.lab` | `createUser SHA`（SHA-1）→ `SHA-256` 与采集端对齐（真实验证必要）；凭据改 `--build-arg` 覆盖，默认仍为文档测试值 |
+| `scripts/n1_real_verify.py` | 凭据改环境变量读取（N1_SNMP_AUTH 等）；docstring 更新为 bridge 网络复现步骤；接口字段 `status`→`admin_status`/`oper_status` |
+
+### 实测证据（2026-08-14，alpine 3.22 + net-snmp 5.9.4 + openssh，netcheck-n1-lab:latest）
+
+- SNMPv3 authPriv（SHA-256 + AES-128）：采集 sysName/sysDescr/sysUpTime + ifTable ✅
+- SSH：root 密码认证、host key 未知/匹配/不匹配、错误密码 auth_failed ✅
+- N2 配置备份：`cat /etc/ssh/sshd_config` 真实读取 124 行 + 脱敏预览 ✅
+- 未阻塞：SNMP 错误凭据分类返回 `error` 而非 `auth_failed`（pysnmp 异常路径差异，已记录待复核）
+
+### Secret 结论
+
+`Dockerfile.lab` 与 `n1_real_verify.py` 全部凭据为文档测试值（`netcheckauth`/`netcheckpriv`/`netcheck123`/`public`），
+无真实 Secret 泄漏；`n1_mock_demo.py` 仅脱敏演示字符串。
