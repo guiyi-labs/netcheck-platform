@@ -37,7 +37,7 @@ SHA256=A9C34CC85232AE3A10F7BE631B3B3256668E475CEF8612F3870EFB0B3106F9BB
 - `frontend/`：前端页面、样式和脚本。
 - `demo-services/`：演示服务。
 - `docs/`：分批归档与最终交付文档。
-- `obsidian_notes/`：毕设实施计划与分批开发归档。
+- `obsidian_notes/`：项目实施计划与分批开发归档。
 - `README.md`。
 - `docker-compose.yml`。
 - `pytest.ini`。

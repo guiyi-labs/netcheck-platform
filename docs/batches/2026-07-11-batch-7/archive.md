@@ -1,11 +1,11 @@
-# 第 7 批完成归档：测试、部署、论文材料与答辩交付闭环
+# 第 7 批完成归档：测试、部署、文档材料与演示交付闭环
 
 > 完成日期：2026-07-11
 > 状态：已完成最终收尾，自动化测试、Docker 构建和端到端验证通过
 
 ## 1. 阶段目标
 
-第 7 批不再新增业务功能，目标是冻结系统功能范围，完成最终测试、部署说明、论文材料、答辩演示脚本和交付清单，使项目进入可验收、可复现、可答辩状态。
+第 7 批不再新增业务功能，目标是冻结系统功能范围，完成最终测试、部署说明、文档材料、演示脚本和交付清单，使项目进入可验收、可复现、可演示状态。
 
 ## 2. 最终功能状态
 
@@ -42,10 +42,10 @@
 - `README.md`
 - `docs/final-delivery/deployment-guide.md`
 - `docs/final-delivery/test-report.md`
-- `docs/final-delivery/demo-script.md`
+- 演示脚本（本地归档）
 - `docs/final-delivery/api-list.md`
 - `docs/final-delivery/database-schema.md`
-- `docs/final-delivery/screenshot-checklist.md`
+- 功能截图清单（本地归档）
 - `docs/final-delivery/delivery-checklist.md`
 - `docs/batches/2026-07-11-batch-7/plan.md`
 - `docs/batches/2026-07-11-batch-7/archive.md`
@@ -163,11 +163,11 @@ POLICY_RESTORED=3/2
 - 拓扑接口返回节点和链路。
 - 告警策略已恢复默认值。
 
-## 9. 最终答辩演示路径
+## 9. 最终演示路径
 
 详见：
 
-- `docs/final-delivery/demo-script.md`
+- 演示脚本（本地归档）
 
 推荐演示顺序：
 
@@ -204,5 +204,5 @@ POLICY_RESTORED=3/2
 Docker 构建：通过
 页面访问：通过
 端到端业务验证：通过
-论文与答辩材料：已归档
+文档与演示材料：已归档
 ```

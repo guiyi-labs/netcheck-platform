@@ -1,4 +1,4 @@
-# 答辩演示指南
+# 演示指南
 
 > 一份「讲得出彩、不会翻车」的演示动线 + 话术提示 + 故障制造脚本。
 
@@ -93,4 +93,4 @@ docker compose start demo-web-error
 ./scripts/demo-stack.sh down   # 释放资源（数据卷保留）
 ```
 
-归档材料：答辩 PPT 参照 [[user-guide|用户操作手册]] 与 [[api-reference|API 参考]]。
+归档材料：演示 PPT 参照 [[user-guide|用户操作手册]] 与 [[api-reference|API 参考]]。

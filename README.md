@@ -37,7 +37,7 @@ NetCheck 将网络运维中的“资产在哪里、哪里异常、异常依据�
 当前能力来自第 1–6 批迭代 + N1/N2/N2.1/N3/N4 网络采集、配置备份与 LLDP 邻居发现。
 SNMPv3/SSH/配置差异已在真实容器链路验收（`docs/final-delivery/n3-real-verification.md`）；
 LLDP 通过**两节点 lldpd AgentX 真实 SNMPv3 authPriv WALK** 验收（全链路证据见
-`docs/final-delivery/n4-lldp-real-verification.md`）。完整实现范围、测试报告和答辩
+`docs/final-delivery/n4-lldp-real-verification.md`）。完整实现范围、测试报告和交付文档
 材料见 [最终交付文档](docs/final-delivery/delivery-checklist.md)。
 
 ## 网络运维扩展路线
@@ -90,7 +90,7 @@ docker compose down
 5. 在资产发现和逻辑拓扑页查看授权范围内的资产与关系。
 
 这条流程可以稳定复现正常响应、HTTP 500、慢响应、Docker 服务名 DNS 解析、诊断、告警和
-资产状态回写结果，适合作为系统演示和论文答辩的基础场景。
+资产状态回写结果，适合作为系统演示和交付验收的基础场景。
 
 ## 技术栈
 
@@ -123,6 +123,6 @@ pytest -q
 
 - [部署说明](docs/final-delivery/deployment-guide.md)
 - [测试报告](docs/final-delivery/test-report.md)
-- [答辩演示脚本](docs/final-delivery/demo-script.md)
-- [论文截图清单](docs/final-delivery/screenshot-checklist.md)
+- [演示指南](docs/operations/demo-guide.md)
+- [快速开始](docs/operations/quickstart.md)
 - [最终交付清单](docs/final-delivery/delivery-checklist.md)

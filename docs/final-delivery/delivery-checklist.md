@@ -18,12 +18,12 @@
 - 后端测试目录：`backend/tests/`
 - 第 7 批最终归档：`docs/batches/2026-07-11-batch-7/archive.md`
 
-## 4. 论文材料
+## 4. 文档材料
 
 - `docs/final-delivery/api-list.md`
 - `docs/final-delivery/database-schema.md`
-- `docs/final-delivery/screenshot-checklist.md`
-- `docs/final-delivery/demo-script.md`
+- 功能截图清单（本地归档）
+- 演示脚本（本地归档）
 
 ## 5. 分批开发归档
 

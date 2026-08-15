@@ -43,7 +43,7 @@
 ## 5. LAN 验证脚本
 
 - 新增 `scripts/verify-lan.sh`：对真实局域网目标逐项跑 ping / TCP / traceroute / HTTP /
-  SNMP(可选) / nmap(可选)，输出 PASS/FAIL，供答辩现场演示与验收。
+  SNMP(可选) / nmap(可选)，输出 PASS/FAIL，供演示现场演示与验收。
 
 ## 6. 验证结果
 

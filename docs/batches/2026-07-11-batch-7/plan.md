@@ -1,8 +1,8 @@
-# 第 7 批实施计划：测试、部署、论文材料与答辩交付闭环
+# 第 7 批实施计划：测试、部署、文档材料与演示交付闭环
 
 > 日期：2026-07-11
 > 前置：第 1-6 批功能已完成。
-> 目标：冻结功能范围，完成最终测试、部署说明、论文材料、演示脚本和交付清单。
+> 目标：冻结功能范围，完成最终测试、部署说明、文档材料、演示脚本和交付清单。
 
 ## 范围
 
@@ -11,8 +11,8 @@
 - 测试报告。
 - API 清单。
 - 数据库表结构说明。
-- 答辩演示脚本。
-- 论文截图清单。
+- 演示脚本。
+- 功能截图清单。
 - 最终交付清单。
 - README 最终补充。
 - 第 7 批完成归档。
@@ -30,10 +30,10 @@
 
 - `docs/final-delivery/deployment-guide.md`
 - `docs/final-delivery/test-report.md`
-- `docs/final-delivery/demo-script.md`
+- 演示脚本（本地归档）
 - `docs/final-delivery/api-list.md`
 - `docs/final-delivery/database-schema.md`
-- `docs/final-delivery/screenshot-checklist.md`
+- 功能截图清单（本地归档）
 - `docs/final-delivery/delivery-checklist.md`
 - `docs/batches/2026-07-11-batch-7/plan.md`
 - `docs/batches/2026-07-11-batch-7/archive.md`

@@ -9,7 +9,7 @@
 | [[quickstart|快速开始]] | 3 分钟跑起来，先看效果 |
 | [[deployment|部署手册]] | 本地开发 / Docker / MySQL / 配置项 |
 | [[user-guide|用户操作手册]] | 各页面功能与完整巡检流程 |
-| [[demo-guide|答辩演示指南]] | 演示动线、话术、故障制造 |
+| [[demo-guide|演示指南]] | 演示动线、话术、故障制造 |
 | [[troubleshooting|排障 FAQ]] | 常见问题定位与修复 |
 | [[api-reference|API 参考]] | 全部端点、鉴权、示例 |
 | [[development|开发指南]] | 代码结构、测试、约定 |

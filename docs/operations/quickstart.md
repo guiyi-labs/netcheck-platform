@@ -55,5 +55,5 @@ python3 -m http.server 8080  # 或 npx serve -l 8080
 ## 下一步
 
 - 想了解完整部署与配置：[[deployment|部署手册]]
-- 想准备答辩演示：[[demo-guide|答辩演示指南]]
+- 想准备演示：[[demo-guide|演示指南]]
 - 遇到问题：[[troubleshooting|排障 FAQ]]
