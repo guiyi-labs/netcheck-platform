@@ -3,11 +3,19 @@
 ## [Unreleased]
 
 ### Added
+- **P1 H3C 适配器真实验证（仿真服务载体）**：`scripts/lab/h3c-sim/`
+  载体（OpenSSH 真实传输 + 忠实 Comware V7 CLI 文本 + net-snmp H3C 风格
+  sysDescr）+ `h3c-sim-lab.sh` 一键编排（build/up/verify/down）；
+  端到端验证 `display version/interface brief/ip routing-table/clock`
+  解析（os_version/uptime/接口统计/路由数/system_time）与 SNMPv3 authPriv
+  sys facts（sysDescr 含 Comware、sysName）；如实标注仿真服务 ≠ 真实 H3C
+  设备（验收记录 `docs/final-delivery/h3c-real-verification.md`；+1 测试
+  未识别命令 → cmd_not_supported）。
 - **网络自动化增强（厂商适配 + 合规基线）**：
   - **H3C Comware SSH 适配器**（C1）：`display version` / `display interface
     brief` / `display ip routing-table` / `display clock` 解析与命令 allowlist，
     配置备份命令 `display current-configuration`；mock 输出验证、如实标注无
-    真实 H3C 设备（+5 测试）。
+    真实 H3C 设备（+5 测试）。P1 已升级为仿真服务载体端到端验证。
   - **配置合规基线**（C2）：`DeviceConfigSnapshot.is_baseline`（同设备唯一）、
     `POST /api/devices/{id}/configs/{snapshot_id}/baseline`（标记/取消）、
     `GET /api/devices/{id}/configs/compliance`（最新快照 vs 基线行级合规报告，

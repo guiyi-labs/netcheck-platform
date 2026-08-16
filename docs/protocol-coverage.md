@@ -31,11 +31,14 @@ SSH 只读采集通过「命令 allowlist + 输出解析器」适配不同厂商
 |---|---|---|---|---|---|
 | `linux` | Linux 主机 | `hostname -f` / `uname -a` / `ip -o link show` / `uptime` / `free -h` / `df -h` | `cat /etc/network/interfaces` 等 | hostname, os_version, uptime, mem_total/free | ✅ 容器验证（N3） |
 | `cisco_ios` | Cisco IOS | `show version` / `show ip interface brief` / `show ip route` / `show clock` | `show running-config` | os_version, uptime, interfaces_count | ✅ 容器验证（N3） |
-| `h3c_comware` | H3C Comware | `display version` / `display interface brief` / `display ip routing-table` / `display clock` | `display current-configuration` | os_version, uptime, interfaces_count, up/down_count, routes_count, system_time | ⚠️ mock 输出验证（无真实 H3C 设备） |
+| `h3c_comware` | H3C Comware | `display version` / `display interface brief` / `display ip routing-table` / `display clock` | `display current-configuration` | os_version, uptime, interfaces_count, up/down_count, routes_count, system_time | ✅ 仿真服务载体端到端验证（真实 SSH/SNMP 传输；无真实 H3C 设备） |
 | `generic` | 兜底 | `hostname` / `uname -a` | `hostname` | —（无结构化解析） | — |
 
-> **如实标注**：`h3c_comware` 适配器按真实 Comware CLI 输出格式编写，以
-> mock SSH transport 输出验证；尚未在真实 H3C 设备上验证。
+> **如实标注**：`h3c_comware` 适配器按真实 Comware CLI 输出格式编写；P1 已通过
+> **仿真服务载体**完成端到端真实验证（真实 SSH/SNMP 传输链路，见
+> `docs/final-delivery/h3c-real-verification.md`）。载体为 OpenSSH + 忠实
+> Comware V7 文本 + net-snmp H3C 风格 sysDescr，**非真实 H3C 设备**；真实
+> 设备上的输出格式细节需按实机复核。
 
 ## 3. 配置合规基线（N2.2，行级 diff 粒度）
 
@@ -73,6 +76,6 @@ SSH 只读采集通过「命令 allowlist + 输出解析器」适配不同厂商
 |---|---|---|
 | SNMPv3 采集/LLDP WALK | 双节点 lldpd 容器真实验证 | `docs/final-delivery/n4-lldp-real-verification.md`，`scripts/lab/lldp-lab.sh` |
 | SSH 采集（linux/cisco_ios） | N3 容器真实验证 | `docs/final-delivery/n3-real-verification.md` |
-| SSH 采集（h3c_comware） | mock transport 单测 | `backend/tests/test_ssh_collector.py` |
+| SSH 采集（h3c_comware） | 仿真服务载体端到端（真实 SSH 传输 + 忠实 Comware 文本） | `docs/final-delivery/h3c-real-verification.md`，`scripts/lab/h3c-sim-lab.sh` |
 | 配置备份/脱敏/diff/合规基线 | 单元测试（mock DB） | `backend/tests/test_config_backup.py`、`test_compliance.py` |
 | 平台巡检（HTTP/Ping/DNS） | 内置演示网络（Compose） | `docs/final-delivery/` 测试报告 |

@@ -131,4 +131,5 @@ pytest -q
 - [演示指南](docs/operations/demo-guide.md)
 - [快速开始](docs/operations/quickstart.md)
 - [协议覆盖与厂商适配说明](docs/protocol-coverage.md)
+- [H3C 适配器真实验证（仿真服务载体）](docs/final-delivery/h3c-real-verification.md)
 - [最终交付清单](docs/final-delivery/delivery-checklist.md)
