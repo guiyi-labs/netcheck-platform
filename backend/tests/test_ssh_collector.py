@@ -425,3 +425,21 @@ def test_collect_ssh_h3c_comware_end_to_end(monkeypatch):
                 "display ip routing-table", "display clock")
         for cmd in result.raw_outputs
     )
+
+def test_h3c_unknown_command_cmd_not_supported(monkeypatch):
+    """Comware 风格未识别命令 → 单命令失败 → 整体 cmd_not_supported（非 ok）。"""
+    fake = _FakeExecClient({
+        "display version": (
+            "H3C Comware Software, Version 7.1.070, Release 1118P02\n"
+            "H3C uptime is 2 weeks, 1 day, 3 hours, 4 minutes\n"
+        ),
+    }, fail_cmd="display version")
+
+    async def fake_connect(host, port, username, password, pkey, host_key_policy):
+        host_key_policy.captured = "h3c-fp"
+        return fake
+
+    _patch_factory(monkeypatch, fake_connect)
+    result = _run("10.0.1.1", "h3c_comware", password="pass")
+    assert result.status == "cmd_not_supported"
+    assert result.command_errors.get("display version") == "cmd_not_supported"
